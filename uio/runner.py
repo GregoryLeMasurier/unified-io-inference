@@ -23,7 +23,7 @@ IMAGE_TAGGING = 'What is this in the image ?'
 IMAGE_INPAINTING = 'Filling the blank region " {} " ?'
 POSE_ESTIMATION = 'Find the human joints in the region " {} " .'
 SEGMENTATION_BASED_GENERATION = 'What is the complete image? Segmentation color: " {} "'
-
+SIMPLE_MANIPULATION = 'Put the " {1} " into the " {2} " . '
 
 GEN_SEGMENTATION_COLORS = np.array([
   [255, 0, 0],
@@ -430,3 +430,27 @@ class ModelRunner:
     out = self.run(
       [image], [prompt], output_text_len=1, generate_image=True, num_decodes=num_decodes)
     return self._extract_image(out)
+
+  def simple_manipulation(self, image, binary_masks: List[np.ndarray], num_decodes=None) -> Dict:
+    """Put the {object}1 into the {object}2."""
+    # We trained on lowercase question so lowercasing is recommended
+
+    assert len(binary_masks) == 2
+
+    ##SHOULD USE THE BELOW
+    #h, w = binary_masks[0].shape
+    #image = np.zeros((h, w, 3), dtype=np.uint8)
+    #for ix, mask in enumerate(binary_masks):
+    #  image[mask, :] = GEN_SEGMENTATION_COLORS[ix]
+    #text = " , ".join(f"{a} : {b}" for a, b in zip(labels, GEN_SEGMENTATION_COLOR_NAMES))
+    #text = text.lower()
+
+
+    #location = [1, 112, 266, 533]
+    #region = utils.region_to_tokens(location, image.shape[1], image.shape[0])
+    prompt = SIMPLE_MANIPULATION.replace("{1}", "test")
+    prompt = prompt.replace("{2}", "test2")
+    out = self.run([image], [prompt], output_text_len=32,
+                   generate_image=False, num_decodes=num_decodes)
+    return self._extract_text(out)
+
