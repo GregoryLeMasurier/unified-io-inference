@@ -56,7 +56,7 @@ def main():
 
   masks = np.asarray(masks)
   torch_masks = torch.from_numpy(masks)
-
+    
   boxes = masks_to_boxes(torch_masks)
   boxes = boxes.numpy()
 

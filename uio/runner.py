@@ -437,8 +437,6 @@ class ModelRunner:
 
     assert len(names) == len(bboxes)
 
-    region1 = utils.region_to_tokens(bboxes[0], image.shape[1], image.shape[0])
-
     for obj_name, bbox in zip(names, bboxes):
       region = utils.region_to_tokens(bbox, image.shape[1], image.shape[0])
       orig_prompt_str = "{" + obj_name + "}"
