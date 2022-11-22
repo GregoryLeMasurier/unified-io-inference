@@ -16,11 +16,27 @@ from torchvision.ops import masks_to_boxes
 from PIL import Image
 import re
 from uio import utils
+from uio import network
+from uio.configs import CONFIGS, VAE_CONFIG
+from uio.model import UnifiedIOModel
+
+
+def init_train_state(
+    model, params, learning_rate
+) -> train_state.TrainState:
+    # Create the optimizer
+    optimizer = optax.adam(learning_rate)
+    # Create a State
+    return train_state.TrainState.create(
+        apply_fn = model.apply,
+        tx=optimizer,
+        params=params
+    )
 
 # dataset splits should be numpy array
 def train_and_evaluate(train_dataset, eval_dataset, test_dataset, state, epochs):
     #TODO: Get the cardinality from dataset
-    num_train_batches = 0
+    num_train_batches = 1
     num_eval_batches = 0
     num_test_batches = 0
    
@@ -179,8 +195,8 @@ def getPrompts(path, data):
 def getActions(path, data):
     actions =["pick","place","push","wipe"]
 
-    hasOne = False
-
+    hasOne = True
+    action_seq = []
     for data_point in data:
         element_path = os.path.join(path, data_point)
         trajectory_path = os.path.join(element_path, "trajectory.pkl")
@@ -215,22 +231,44 @@ def getActions(path, data):
         boxes = masks_to_boxes(torch_masks)
         boxes = boxes.numpy()
 
+        action_seq.append("action: position: rotation: action: position: rotation")
+    #Tokenize Prompts     
+    tokenizer = T5Tokenizer.from_pretrained(
+        "t5-base", model_max_length=256, extra_ids=1100)    
+    tokenized_actions = tokenizer(action_seq, max_length=64, truncation=True, padding='max_length')
+    return tokenized_actions['input_ids']
+
 def getBatch(path, data): 
     image_encoder_inputs = getScenes(path, data)
-    #print(image_encoder_inputs)
+    print(image_encoder_inputs)
 
     text_encoder_inputs = getPrompts(path, data)
-    #print(text_encoder_inputs)
+    print(text_encoder_inputs)
 
-    text_decoder_inputs = getActions(path, data)
+    actions = getActions(path, data)
+    text_decoder_inputs = []
     text_decoder_targets = []
+    for action in actions:
+        text_decoder_targets.append(action)
+        action.insert(0,0)
+        text_decoder_inputs.append(action)
+        #text_decoder_targets.append(action.append(1))
+    print(text_decoder_inputs)
+    print(text_decoder_targets)
 
-    #print([tokenizer.bos_token_id] + res)
-    #print(res + [tokenizer.eos_token_id])
+    batch = {
+      'image_encoder_inputs': image_encoder_inputs,
+      'text_encoder_inputs': text_encoder_inputs,
+      'text_decoder_inputs': text_decoder_inputs,
+      'text_decoder_targets': text_decoder_targets,
+    }
+
+    return batch
 
 if __name__ =='__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("path")
+    parser.add_argument("params_path")
     args = parser.parse_args()
 
     train_path = os.path.join(args.path, "train")
@@ -248,5 +286,12 @@ if __name__ =='__main__':
     print(len(val))
     print(len(test))
 
-    getBatch(train_path, train)
+    batch = getBatch(train_path, train)
+
+    conf = CONFIGS["small"]
+    module = network.Transformer(config=conf, vae_config=VAE_CONFIG)
+    model = UnifiedIOModel(module, text_decoder_length=32, image_decoder_length=1)
+    params = utils.load_checkpoint(args.params_path)
+    state = init_train_state(model, params, 0.01)
+    train_and_evaluate(batch, None, None, state, 1)
     
