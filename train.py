@@ -1,24 +1,29 @@
+import os
+import argparse
+import wandb
+
+import numpy as np
+import numpy.ma as ma
+
+from tqdm.auto import tqdm
+
 import jax
 import jax.numpy as jnp
 import optax
 from flax.training import train_state
-from sklearn.model_selection import train_test_split
-from transformers import T5Tokenizer
-import numpy as np
-import numpy.ma as ma
-import os
-import argparse
-from tqdm.auto import tqdm
-import wandb
+
 import pickle
+from PIL import Image
 import torch
 from torchvision.ops import masks_to_boxes
-from PIL import Image
 import re
+
 from uio import utils
 from uio import network
 from uio.configs import CONFIGS, VAE_CONFIG
 from uio.model import UnifiedIOModel
+
+from transformers import T5Tokenizer
 
 
 def init_train_state(
@@ -28,7 +33,7 @@ def init_train_state(
     optimizer = optax.adam(learning_rate)
     # Create a State
     return train_state.TrainState.create(
-        apply_fn = model.apply,
+        apply_fn = model.module.apply, #the uio model doesn't directly have apply. Should work but might be source of bugs in the future?
         tx=optimizer,
         params=params
     )
@@ -37,18 +42,17 @@ def init_train_state(
 def train_and_evaluate(train_dataset, eval_dataset, test_dataset, state, epochs):
     #TODO: Get the cardinality from dataset
     num_train_batches = 1
-    num_eval_batches = 0
-    num_test_batches = 0
+    #num_eval_batches = 0
+    #num_test_batches = 0
    
     for epoch in tqdm(range(1, epochs + 1)):
-        best_eval_loss = 1e6
+        print(epoch)
+        #best_eval_loss = 1e6
 
         # ============== Training ============== #
         train_batch_metrics = []
-        train_datagen = iter(train_dataset)
-        for batch_idx in range(num_train_batches):
-            batch = next(train_datagen)
-            state, metrics = train_step(state, batch)
+        for i in range(num_train_batches):
+            state, metrics = train_step(state, train_dataset)#currently only have one batch
             train_batch_metrics.append(metrics)
         train_batch_metrics = accumulate_metrics(train_batch_metrics)
 
@@ -86,19 +90,24 @@ def accumulate_metrics(metrics):
 def train_step(
     state: train_state.TrainState, batch: jnp.ndarray
 ):
-    image, label = batch
+
+    image=batch['image_encoder_inputs']
+    prompt=batch['text_encoder_inputs']
+    actions_in=batch['text_decoder_inputs']
+    actions_out=batch['text_decoder_targets']
+    image_out=batch['image_decoder_targets']
 
 
     def loss_fn(params):
-        logits = state.apply_fn({'params': params}, image)
-        loss = cross_entropy_loss(logits=logits, labels=label)
+        logits = state.apply_fn({'params': params}, image_encoder_inputs=image, text_encoder_inputs=prompt, text_decoder_inputs=actions_in, text_decoder_targets=actions_out, image_decoder_targets=image_out)
+        loss = cross_entropy_loss(logits=logits, labels=actions_out)
         return loss, logits
 
 
     gradient_fn = jax.value_and_grad(loss_fn, has_aux=True)
     (_, logits), grads = gradient_fn(state.params)
     state = state.apply_gradients(grads=grads)
-    metrics = compute_metrics(logits=logits, labels=label)
+    metrics = compute_metrics(logits=logits, labels=actions_out)
     return state, metrics
 
 #@jax.jit
@@ -107,6 +116,7 @@ def train_step(
 #    logits = state.apply_fn({'params': state.params}, image)
 #    return compute_metrics(logits=logits, labels=label)
 
+#TODO: Fix tuple bug here. num classes is also wrong
 def cross_entropy_loss(*, logits, labels):
     one_hot_encoded_labels = jax.nn.one_hot(labels, num_classes=10)
     return optax.softmax_cross_entropy(
@@ -134,9 +144,8 @@ def getScenes(path, data):
             if img is not None:
                 assert len(img.shape) == 3 and img.shape[-1] == 3
             tensor, _mask = utils.preprocess_image(img, None)
-            #tensor = np.stack(tensor)#They did this? Do I really need it?
             image_tensors.append(tensor)
-    return image_tensors
+    return np.stack(image_tensors)
 
 def getPrompts(path, data):
     #Compute Prompt Strings
@@ -240,10 +249,10 @@ def getActions(path, data):
 
 def getBatch(path, data): 
     image_encoder_inputs = getScenes(path, data)
-    print(image_encoder_inputs)
+    #print(image_encoder_inputs)
 
     text_encoder_inputs = getPrompts(path, data)
-    print(text_encoder_inputs)
+    #print(text_encoder_inputs)
 
     actions = getActions(path, data)
     text_decoder_inputs = []
@@ -253,14 +262,15 @@ def getBatch(path, data):
         action.insert(0,0)
         text_decoder_inputs.append(action)
         #text_decoder_targets.append(action.append(1))
-    print(text_decoder_inputs)
-    print(text_decoder_targets)
+    #print(text_decoder_inputs)
+    #print(text_decoder_targets)
 
     batch = {
-      'image_encoder_inputs': image_encoder_inputs,
-      'text_encoder_inputs': text_encoder_inputs,
-      'text_decoder_inputs': text_decoder_inputs,
-      'text_decoder_targets': text_decoder_targets,
+      'image_encoder_inputs': np.array(image_encoder_inputs),
+      'text_encoder_inputs': np.array(text_encoder_inputs),
+      'text_decoder_inputs': np.array(text_decoder_inputs),
+      'text_decoder_targets': np.array(text_decoder_targets),
+      'image_decoder_targets': np.ndarray((100,1,1,3,),int) #Don't need so have it be size 1 to trigger the flag
     }
 
     return batch
@@ -293,5 +303,6 @@ if __name__ =='__main__':
     model = UnifiedIOModel(module, text_decoder_length=32, image_decoder_length=1)
     params = utils.load_checkpoint(args.params_path)
     state = init_train_state(model, params, 0.01)
+
     train_and_evaluate(batch, None, None, state, 1)
     
