@@ -1,3 +1,5 @@
+# Most Jax functions were slightly / completely rewritten following the guide here: https://wandb.ai/jax-series/simple-training-loop/reports/Writing-a-Training-Loop-in-JAX-FLAX--VmlldzoyMzA4ODEy
+
 import os
 import argparse
 import wandb
@@ -25,20 +27,16 @@ from uio.model import UnifiedIOModel
 
 from transformers import T5Tokenizer
 
-
 def init_train_state(
     model, params, learning_rate
 ) -> train_state.TrainState:
-    # Create the optimizer
     optimizer = optax.adam(learning_rate)
-    # Create a State
     return train_state.TrainState.create(
-        apply_fn = model.module.apply, #the uio model doesn't directly have apply. Should work but might be source of bugs in the future?
+        apply_fn = model.module.apply,
         tx=optimizer,
         params=params
     )
 
-# dataset splits should be numpy array
 def train_and_evaluate(train_dataset, eval_dataset, test_dataset, state, epochs):
     #TODO: Get the cardinality from dataset
     num_train_batches = 1
@@ -46,7 +44,6 @@ def train_and_evaluate(train_dataset, eval_dataset, test_dataset, state, epochs)
     #num_test_batches = 0
    
     for epoch in tqdm(range(1, epochs + 1)):
-        print(epoch)
         #best_eval_loss = 1e6
 
         # ============== Training ============== #
@@ -100,6 +97,7 @@ def train_step(
 
     def loss_fn(params):
         logits = state.apply_fn({'params': params}, image_encoder_inputs=image, text_encoder_inputs=prompt, text_decoder_inputs=actions_in, text_decoder_targets=actions_out, image_decoder_targets=image_out)
+        logits = logits[0] #only use text logits
         loss = cross_entropy_loss(logits=logits, labels=actions_out)
         return loss, logits
 
@@ -118,7 +116,7 @@ def train_step(
 
 #TODO: Fix tuple bug here. num classes is also wrong
 def cross_entropy_loss(*, logits, labels):
-    one_hot_encoded_labels = jax.nn.one_hot(labels, num_classes=10)
+    one_hot_encoded_labels = jax.nn.one_hot(labels, logits.shape[-1])
     return optax.softmax_cross_entropy(
         logits=logits, labels=one_hot_encoded_labels
     ).mean()
@@ -204,7 +202,6 @@ def getPrompts(path, data):
 def getActions(path, data):
     actions =["pick","place","push","wipe"]
 
-    hasOne = True
     action_seq = []
     for data_point in data:
         element_path = os.path.join(path, data_point)
@@ -213,9 +210,6 @@ def getActions(path, data):
 
         with open(trajectory_path, "rb") as f:
             trajectory = pickle.load(f)
-
-        if not hasOne:
-            print(trajectory)
 
         prompt = trajectory.pop('prompt')
         prompt_assets = trajectory.pop('prompt_assets')
@@ -229,9 +223,6 @@ def getActions(path, data):
             obj_asset = prompt_assets.pop(obj_names[i])
             obj_mask = obj_asset.get('segm').get('top')
             bool_mask = np.logical_not(ma.make_mask(obj_mask))
-            if not hasOne:
-                print(obj_mask)
-                hasOne = True
             masks.append(bool_mask)
 
         masks = np.asarray(masks)
@@ -261,7 +252,6 @@ def getBatch(path, data):
         text_decoder_targets.append(action)
         action.insert(0,0)
         text_decoder_inputs.append(action)
-        #text_decoder_targets.append(action.append(1))
     #print(text_decoder_inputs)
     #print(text_decoder_targets)
 
@@ -270,7 +260,7 @@ def getBatch(path, data):
       'text_encoder_inputs': np.array(text_encoder_inputs),
       'text_decoder_inputs': np.array(text_decoder_inputs),
       'text_decoder_targets': np.array(text_decoder_targets),
-      'image_decoder_targets': np.ndarray((100,1,1,3,),int) #Don't need so have it be size 1 to trigger the flag
+      'image_decoder_targets': np.ndarray((len(train),1,1,3,),int) #Don't need so have it be size 1 to trigger the flag
     }
 
     return batch
@@ -286,15 +276,15 @@ if __name__ =='__main__':
     test_path = os.path.join(args.path, "test")
 
     train = os.listdir(train_path)
-    train = train[0:100]
+    train = train[0:10]
     val = os.listdir(val_path)
     val = val[0:10]
     test = os.listdir(test_path)
     test = test[0:10]
 
-    print(len(train))
-    print(len(val))
-    print(len(test))
+    print("Train Instances: " + str(len(train)))
+    print("Val Instances: " + str(len(val)))
+    print("Test Instances: " + str(len(test)))
 
     batch = getBatch(train_path, train)
 
@@ -304,5 +294,7 @@ if __name__ =='__main__':
     params = utils.load_checkpoint(args.params_path)
     state = init_train_state(model, params, 0.01)
 
+    wandb.init()
     train_and_evaluate(batch, None, None, state, 1)
+    wandb.run.save()
     
