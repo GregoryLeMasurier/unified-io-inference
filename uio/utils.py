@@ -10,8 +10,9 @@ import torch
 from torchvision.transforms import InterpolationMode
 from torchvision.transforms import functional as F
 
-vocab_size = 33100
-BIN_START = vocab_size - 1100
+#Modified constants because we added special tokens
+vocab_size = 33200#33100
+BIN_START = vocab_size - 1100#1200
 NUM_DETECTION_BIN = 1000
 VOCAB_START = 100
 IMAGE_INPUT_SIZE = [384, 384]

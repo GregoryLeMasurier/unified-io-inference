@@ -27,6 +27,8 @@ from uio.model import UnifiedIOModel
 
 from transformers import T5Tokenizer
 
+from pose_quantizer import PoseQuantizer
+
 def init_train_state(
     model, params, learning_rate
 ) -> train_state.TrainState:
@@ -114,7 +116,6 @@ def train_step(
 #    logits = state.apply_fn({'params': state.params}, image)
 #    return compute_metrics(logits=logits, labels=label)
 
-#TODO: Fix tuple bug here. num classes is also wrong
 def cross_entropy_loss(*, logits, labels):
     one_hot_encoded_labels = jax.nn.one_hot(labels, logits.shape[-1])
     return optax.softmax_cross_entropy(
@@ -195,46 +196,53 @@ def getPrompts(path, data):
 
     #Tokenize Prompts     
     tokenizer = T5Tokenizer.from_pretrained(
-        "t5-base", model_max_length=256, extra_ids=1100)    
+        "t5-base", model_max_length=256, extra_ids=1200)    
     tokenized_prompts = tokenizer(prompts, max_length=64, truncation=True, padding='max_length')
     return tokenized_prompts['input_ids']
 
+def getTrajectoryBounds(path, data):
+    element_path = os.path.join(path, data[0]) # Assume all trajectories have the same bounds (safe for this task at least)
+    trajectory_path = os.path.join(element_path, "trajectory.pkl")
+    assert os.path.exists(trajectory_path)
+
+    with open(trajectory_path, "rb") as f:
+        trajectory = pickle.load(f)
+    bounds = trajectory['action_bounds']
+
+    return (min(bounds['low']), max(bounds['high']))
+
 def getActions(path, data):
-    actions =["pick","place","push","wipe"]
+    #actions =["pick","place","push","wipe"]
+
+    prefix_action = "action: "
+    prefix_pose = "pose"
+    prefix_rotation = "rotation"
 
     action_seq = []
+    pose_quantizer = None
     for data_point in data:
         element_path = os.path.join(path, data_point)
-        trajectory_path = os.path.join(element_path, "trajectory.pkl")
-        assert os.path.exists(trajectory_path)
+        action_path = os.path.join(element_path, "action.pkl")
+        assert os.path.exists(action_path)
 
-        with open(trajectory_path, "rb") as f:
-            trajectory = pickle.load(f)
+        with open(action_path, "rb") as f:
+            action = pickle.load(f)
 
-        prompt = trajectory.pop('prompt')
-        prompt_assets = trajectory.pop('prompt_assets')
+        if pose_quantizer == None:
+            low,high = getTrajectoryBounds(path, data)
+            pose_quantizer = PoseQuantizer(low, high, 100)
 
-        obj_names = re.findall(r'\{.*?\}', prompt)
+        #Hard-coded for this task
+        pp0 = prefix_pose + ": " + ''.join(pose_quantizer.encode_array(action['pose0_position'][0])) + " "
+        pr0 = prefix_rotation + ": " + ''.join(pose_quantizer.encode_array(action['pose0_rotation'][0])) + " "
+        pp1 = prefix_pose + ": " + ''.join(pose_quantizer.encode_array(action['pose1_position'][0])) + " "
+        pr1 = prefix_rotation + ": " + ''.join(pose_quantizer.encode_array(action['pose1_rotation'][0])) + " "
 
-        masks = []
-
-        for i in range(0,len(obj_names)):
-            obj_names[i] = obj_names[i].replace('{', '').replace('}', '')
-            obj_asset = prompt_assets.pop(obj_names[i])
-            obj_mask = obj_asset.get('segm').get('top')
-            bool_mask = np.logical_not(ma.make_mask(obj_mask))
-            masks.append(bool_mask)
-
-        masks = np.asarray(masks)
-        torch_masks = torch.from_numpy(masks)
-    
-        boxes = masks_to_boxes(torch_masks)
-        boxes = boxes.numpy()
-
-        action_seq.append("action: position: rotation: action: position: rotation")
+        action_str = prefix_action + pp0 + pr0 + prefix_action + pp1 + pr1
+        action_seq.append(action_str)
     #Tokenize Prompts     
     tokenizer = T5Tokenizer.from_pretrained(
-        "t5-base", model_max_length=256, extra_ids=1100)    
+        "t5-base", model_max_length=256, extra_ids=1200)    
     tokenized_actions = tokenizer(action_seq, max_length=64, truncation=True, padding='max_length')
     return tokenized_actions['input_ids']
 
