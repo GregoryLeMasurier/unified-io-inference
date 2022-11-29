@@ -48,7 +48,7 @@ def train_data_collator(rng: jax.random.PRNGKey, dataset: Dataset, batch_size: i
 
         yield batch
 
-def train_and_evaluate(model, train_dataset, eval_dataset, test_dataset, state, rng, epochs, bs, out_path):   
+def train_and_evaluate(train_dataset, eval_dataset, test_dataset, state, rng, epochs, bs, out_path):   
     step_per_epoch = len(train_dataset)
     total_steps = step_per_epoch * epochs
 
@@ -161,6 +161,6 @@ if __name__ =='__main__':
     state = init_train_state(model, params, learning_rate=0.01)
 
     wandb.init()
-    train_and_evaluate(model=model, train_dataset=dataset['train'], eval_dataset=None, test_dataset=None, state=state, rng=rng, epochs=1, bs=1, out_path=args.checkpoint_path)
+    train_and_evaluate(train_dataset=dataset['train'], eval_dataset=None, test_dataset=None, state=state, rng=rng, epochs=1, bs=1, out_path=args.checkpoint_path)
     wandb.run.save()
     
