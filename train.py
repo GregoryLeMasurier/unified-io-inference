@@ -158,9 +158,9 @@ if __name__ =='__main__':
     module = network.Transformer(config=conf, vae_config=VAE_CONFIG)
     model = UnifiedIOModel(module, text_decoder_length=32, image_decoder_length=1)
     params = utils.load_checkpoint(args.params_path)
-    state = init_train_state(model, params, learning_rate=0.01)
+    state = init_train_state(model, params, learning_rate=5e-5)
 
     wandb.init()
-    train_and_evaluate(train_dataset=dataset['train'], eval_dataset=None, test_dataset=None, state=state, rng=rng, epochs=1, bs=1, out_path=args.checkpoint_path)
+    train_and_evaluate(train_dataset=dataset['train'], eval_dataset=None, test_dataset=None, state=state, rng=rng, epochs=20, bs=1, out_path=args.checkpoint_path)
     wandb.run.save()
     
