@@ -11,7 +11,7 @@ from tqdm.auto import tqdm
 import jax
 import jax.numpy as jnp
 import optax
-from flax.training import train_state
+from flax.training import train_state, checkpoints
 from flax.training.common_utils import shard
 
 from uio import utils
@@ -21,7 +21,6 @@ from uio.model import UnifiedIOModel
 
 import process_data
 from datasets import Dataset
-
 
 #TODO: Warmup?
 def init_train_state(
@@ -49,7 +48,7 @@ def train_data_collator(rng: jax.random.PRNGKey, dataset: Dataset, batch_size: i
 
         yield batch
 
-def train_and_evaluate(train_dataset, eval_dataset, test_dataset, state, rng, epochs, bs):   
+def train_and_evaluate(model, train_dataset, eval_dataset, test_dataset, state, rng, epochs, bs, out_path):   
     step_per_epoch = len(train_dataset)
     total_steps = step_per_epoch * epochs
 
@@ -68,8 +67,9 @@ def train_and_evaluate(train_dataset, eval_dataset, test_dataset, state, rng, ep
         ):
             state, metrics = train_step(state, batch)
             train_batch_metrics.append(metrics)
+            if step == (total_steps - 1):
+                checkpoints.save_checkpoint(ckpt_dir=out_path, target=state, step=step)
         train_batch_metrics = accumulate_metrics(train_batch_metrics)
-
 
 #Skip Val for now
         # ============== Validation ============= #
@@ -89,7 +89,6 @@ def train_and_evaluate(train_dataset, eval_dataset, test_dataset, state, rng, ep
             #"Validation Loss": eval_batch_metrics['loss'],
             #"Validation Accuracy": eval_batch_metrics['accuracy']
         }, step=epoch)
-
 
     return state
 
@@ -149,6 +148,7 @@ if __name__ =='__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("path")
     parser.add_argument("params_path")
+    parser.add_argument("checkpoint_path")
     args = parser.parse_args()
 
     dataset = process_data.getDataset(args.path)
@@ -161,6 +161,6 @@ if __name__ =='__main__':
     state = init_train_state(model, params, learning_rate=0.01)
 
     wandb.init()
-    train_and_evaluate(train_dataset=dataset['train'], eval_dataset=None, test_dataset=None, state=state, rng=rng, epochs=1, bs=1)
+    train_and_evaluate(model=model, train_dataset=dataset['train'], eval_dataset=None, test_dataset=None, state=state, rng=rng, epochs=1, bs=1, out_path=args.checkpoint_path)
     wandb.run.save()
     

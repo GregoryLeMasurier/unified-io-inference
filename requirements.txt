@@ -9,3 +9,6 @@ sentencepiece
 # Just used for image resizing
 torch
 torchvision
+
+#for saving checkpoints
+tensorflow
