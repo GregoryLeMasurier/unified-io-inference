@@ -13,12 +13,14 @@ import jax
 import jax.numpy as jnp
 import optax
 from flax.training import train_state
+from flax.training.common_utils import shard
 
 import pickle
 from PIL import Image
 import torch
 from torchvision.ops import masks_to_boxes
 import re
+from datasets import Dataset
 
 from uio import utils
 from uio import network
@@ -29,6 +31,7 @@ from transformers import T5Tokenizer
 
 from pose_quantizer import PoseQuantizer
 
+#TODO: Warmup?
 def init_train_state(
     model, params, learning_rate
 ) -> train_state.TrainState:
@@ -39,19 +42,39 @@ def init_train_state(
         params=params
     )
 
-def train_and_evaluate(train_dataset, eval_dataset, test_dataset, state, epochs):
-    #TODO: Get the cardinality from dataset
-    num_train_batches = 1
-    #num_eval_batches = 0
-    #num_test_batches = 0
-   
+#This function was taken from here: https://programtalk.com/vs4/python/huggingface/transformers/examples/flax/token-classification/run_flax_ner.py/
+def train_data_collator(rng: jax.random.PRNGKey, dataset: Dataset, batch_size: int):
+    """Returns shuffled batches of size `batch_size` from truncated `train dataset`, sharded over all local devices."""
+    steps_per_epoch = len(dataset) // batch_size
+    perms = jax.random.permutation(rng, len(dataset))
+    perms = perms[: steps_per_epoch * batch_size]  # Skip incomplete batch.
+    perms = perms.reshape((steps_per_epoch, batch_size))
+
+    for perm in perms:
+        batch = dataset[perm]
+        batch = {k: np.array(v) for k, v in batch.items()}
+        batch = shard(batch)
+
+        yield batch
+
+def train_and_evaluate(train_dataset, eval_dataset, test_dataset, state, rng, epochs, bs):   
+    step_per_epoch = len(train_dataset)
+    total_steps = step_per_epoch * epochs
+
     for epoch in tqdm(range(1, epochs + 1)):
-        #best_eval_loss = 1e6
+        rng, input_rng = jax.random.split(rng)
 
         # ============== Training ============== #
         train_batch_metrics = []
-        for i in range(num_train_batches):
-            state, metrics = train_step(state, train_dataset)#currently only have one batch
+        for step, batch in enumerate(
+            tqdm(
+                train_data_collator(input_rng, train_dataset, bs),
+                total=step_per_epoch,
+                desc="Training...",
+                position=1,
+            )
+        ):
+            state, metrics = train_step(state, batch)
             train_batch_metrics.append(metrics)
         train_batch_metrics = accumulate_metrics(train_batch_metrics)
 
@@ -90,12 +113,11 @@ def train_step(
     state: train_state.TrainState, batch: jnp.ndarray
 ):
 
-    image=batch['image_encoder_inputs']
-    prompt=batch['text_encoder_inputs']
-    actions_in=batch['text_decoder_inputs']
-    actions_out=batch['text_decoder_targets']
-    image_out=batch['image_decoder_targets']
-
+    image=batch['image_encoder_inputs'][0]
+    prompt=batch['text_encoder_inputs'][0]
+    actions_in=batch['text_decoder_inputs'][0]
+    actions_out=batch['text_decoder_targets'][0]
+    image_out=batch['image_decoder_targets'][0]
 
     def loss_fn(params):
         logits = state.apply_fn({'params': params}, image_encoder_inputs=image, text_encoder_inputs=prompt, text_decoder_inputs=actions_in, text_decoder_targets=actions_out, image_decoder_targets=image_out)
@@ -246,12 +268,10 @@ def getActions(path, data):
     tokenized_actions = tokenizer(action_seq, max_length=64, truncation=True, padding='max_length')
     return tokenized_actions['input_ids']
 
-def getBatch(path, data): 
+def getDataset(path, data): 
     image_encoder_inputs = getScenes(path, data)
-    #print(image_encoder_inputs)
 
     text_encoder_inputs = getPrompts(path, data)
-    #print(text_encoder_inputs)
 
     actions = getActions(path, data)
     text_decoder_inputs = []
@@ -260,10 +280,8 @@ def getBatch(path, data):
         text_decoder_targets.append(action)
         action.insert(0,0)
         text_decoder_inputs.append(action)
-    #print(text_decoder_inputs)
-    #print(text_decoder_targets)
 
-    batch = {
+    dict = {
       'image_encoder_inputs': np.array(image_encoder_inputs),
       'text_encoder_inputs': np.array(text_encoder_inputs),
       'text_decoder_inputs': np.array(text_decoder_inputs),
@@ -271,7 +289,7 @@ def getBatch(path, data):
       'image_decoder_targets': np.ndarray((len(train),1,1,3,),int) #Don't need so have it be size 1 to trigger the flag
     }
 
-    return batch
+    return Dataset.from_dict(dict)
 
 if __name__ =='__main__':
     parser = argparse.ArgumentParser()
@@ -294,15 +312,17 @@ if __name__ =='__main__':
     print("Val Instances: " + str(len(val)))
     print("Test Instances: " + str(len(test)))
 
-    batch = getBatch(train_path, train)
+    train_data = getDataset(train_path, train)
+
+    rng = jax.random.PRNGKey(42)#hard-coded for now
 
     conf = CONFIGS["small"]
     module = network.Transformer(config=conf, vae_config=VAE_CONFIG)
     model = UnifiedIOModel(module, text_decoder_length=32, image_decoder_length=1)
     params = utils.load_checkpoint(args.params_path)
-    state = init_train_state(model, params, 0.01)
+    state = init_train_state(model, params, learning_rate=0.01)
 
     wandb.init()
-    train_and_evaluate(batch, None, None, state, 1)
+    train_and_evaluate(train_dataset=train_data, eval_dataset=None, test_dataset=None, state=state, rng=rng, epochs=1, bs=1)
     wandb.run.save()
     
