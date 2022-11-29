@@ -47,6 +47,16 @@ def train_data_collator(rng: jax.random.PRNGKey, dataset: Dataset, batch_size: i
 
         yield batch
 
+#This function was taken from here: https://programtalk.com/vs4/python/huggingface/transformers/examples/flax/token-classification/run_flax_ner.py/
+def eval_data_collator(dataset: Dataset, batch_size: int):
+    """Returns batches of size `batch_size` from `eval dataset`, sharded over all local devices."""
+    for i in range(len(dataset) // batch_size):
+        batch = dataset[i * batch_size : (i + 1) * batch_size]
+        batch = {k: np.array(v) for k, v in batch.items()}
+        batch = shard(batch)
+
+        yield batch
+
 def train_and_evaluate(train_dataset, eval_dataset, test_dataset, state, rng, epochs, bs, out_path):   
     step_per_epoch = len(train_dataset)
     total_steps = step_per_epoch * epochs
@@ -71,23 +81,27 @@ def train_and_evaluate(train_dataset, eval_dataset, test_dataset, state, rng, ep
                 checkpoints.save_checkpoint(ckpt_dir=out_path, target=state, prefix=checkpoint_prefix,step=step)
         train_batch_metrics = accumulate_metrics(train_batch_metrics)
 
-#Skip Val for now
         # ============== Validation ============= #
-        #eval_batch_metrics = []
-        #eval_datagen = iter(eval_dataset)
-        #for batch_idx in range(num_eval_batches):
-        #    batch = next(eval_datagen)
-        #    metrics = eval_step(state, batch)
-        #    eval_batch_metrics.append(metrics)
-        #eval_batch_metrics = accumulate_metrics(eval_batch_metrics)
+        eval_batch_metrics = []
+        for step, batch in enumerate(
+            tqdm(
+                eval_data_collator(eval_dataset, bs),
+                total=len(eval_dataset),
+                desc="Evaluating ...",
+                position=2,
+            )
+        ):
+            metrics = eval_step(state, batch)
+            eval_batch_metrics.append(metrics)
+        eval_batch_metrics = accumulate_metrics(eval_batch_metrics)
 
 
         # Log Metrics to Weights & Biases
         wandb.log({
             "Train Loss": train_batch_metrics['loss'],
             "Train Accuracy": train_batch_metrics['accuracy'],
-            #"Validation Loss": eval_batch_metrics['loss'],
-            #"Validation Accuracy": eval_batch_metrics['accuracy']
+            "Validation Loss": eval_batch_metrics['loss'],
+            "Validation Accuracy": eval_batch_metrics['accuracy']
         }, step=epoch)
 
     return state
@@ -123,11 +137,18 @@ def train_step(
     metrics = compute_metrics(logits=logits, labels=actions_out)
     return state, metrics
 
-#@jax.jit
-#def eval_step(state, batch):
-#    image, label = batch
-#    logits = state.apply_fn({'params': state.params}, image)
-#    return compute_metrics(logits=logits, labels=label)
+@jax.jit
+def eval_step(
+    state: train_state.TrainState, batch: jnp.ndarray
+):
+    image=batch['image_encoder_inputs'][0]
+    prompt=batch['text_encoder_inputs'][0]
+    actions_in=batch['text_decoder_inputs'][0]
+    actions_out=batch['text_decoder_targets'][0]
+    image_out=batch['image_decoder_targets'][0]
+    logits = state.apply_fn({'params': state.params}, image_encoder_inputs=image, text_encoder_inputs=prompt, text_decoder_inputs=actions_in, text_decoder_targets=actions_out, image_decoder_targets=image_out)
+    logits = logits[0] #only use text logits    
+    return compute_metrics(logits=logits, labels=actions_out)
 
 def cross_entropy_loss(*, logits, labels):
     one_hot_encoded_labels = jax.nn.one_hot(labels, logits.shape[-1])
@@ -161,6 +182,6 @@ if __name__ =='__main__':
     state = init_train_state(model, params, learning_rate=5e-5)
 
     wandb.init()
-    train_and_evaluate(train_dataset=dataset['train'], eval_dataset=None, test_dataset=None, state=state, rng=rng, epochs=20, bs=1, out_path=args.checkpoint_path)
+    train_and_evaluate(train_dataset=dataset['train'], eval_dataset=dataset['val'], test_dataset=None, state=state, rng=rng, epochs=20, bs=1, out_path=args.checkpoint_path)
     wandb.run.save()
     
