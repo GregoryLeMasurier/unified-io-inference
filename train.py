@@ -1,6 +1,4 @@
 # Most Jax functions were slightly / completely rewritten following the guide here: https://wandb.ai/jax-series/simple-training-loop/reports/Writing-a-Training-Loop-in-JAX-FLAX--VmlldzoyMzA4ODEy
-
-import os
 import argparse
 import wandb
 
@@ -67,7 +65,7 @@ def train_and_evaluate(train_dataset, eval_dataset, test_dataset, state, rng, ep
         ):
             state, metrics = train_step(state, batch)
             train_batch_metrics.append(metrics)
-            if step == (total_steps - 1):
+            if step == (total_steps - 1):#TODO: this is just a test
                 checkpoints.save_checkpoint(ckpt_dir=out_path, target=state, step=step)
         train_batch_metrics = accumulate_metrics(train_batch_metrics)
 
@@ -146,12 +144,12 @@ def compute_metrics(*, logits, labels):
 
 if __name__ =='__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("path")
+    parser.add_argument("data_path")
     parser.add_argument("params_path")
     parser.add_argument("checkpoint_path")
     args = parser.parse_args()
 
-    dataset = process_data.getDataset(args.path)
+    dataset = process_data.getDataset(args.data_path)
     rng = jax.random.PRNGKey(42)#hard-coded for now
 
     conf = CONFIGS["small"]
