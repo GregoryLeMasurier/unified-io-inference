@@ -131,12 +131,27 @@ def getActions(path, data):
     tokenized_actions = tokenizer(action_seq, max_length=64, truncation=True, padding='max_length')
     return tokenized_actions['input_ids']
 
-def getDataset(path, data): 
-    image_encoder_inputs = getScenes(path, data)
+def getDataset(path): 
+    train_path = os.path.join(path, "train")
+    val_path = os.path.join(path, "val")
+    test_path = os.path.join(path, "test")
 
-    text_encoder_inputs = getPrompts(path, data)
+    train = os.listdir(train_path)
+    train = train[0:10]
+    val = os.listdir(val_path)
+    val = val[0:10]
+    test = os.listdir(test_path)
+    test = test[0:10]
 
-    actions = getActions(path, data)
+    print("Train Instances: " + str(len(train)))
+    print("Val Instances: " + str(len(val)))
+    print("Test Instances: " + str(len(test)))
+
+    image_encoder_inputs = getScenes(train_path, train)
+
+    text_encoder_inputs = getPrompts(train_path, train)
+
+    actions = getActions(train_path, train)
     text_decoder_inputs = []
     text_decoder_targets = []
     for action in actions:
@@ -144,12 +159,26 @@ def getDataset(path, data):
         action.insert(0,0)
         text_decoder_inputs.append(action)
 
-    dict = {
+    train_dict = {
       'image_encoder_inputs': np.array(image_encoder_inputs),
       'text_encoder_inputs': np.array(text_encoder_inputs),
       'text_decoder_inputs': np.array(text_decoder_inputs),
       'text_decoder_targets': np.array(text_decoder_targets),
-      'image_decoder_targets': np.ndarray((len(data),1,1,3,),int) #Don't need so have it be size 1 to trigger the flag
+      'image_decoder_targets': np.ndarray((len(train),1,1,3,),int) #Don't need so have it be size 1 to trigger the flag
     }
 
-    return Dataset.from_dict(dict)
+    empty_dict = {
+      'image_encoder_inputs': np.zeros(len(train_dict['image_encoder_inputs'])),
+      'text_encoder_inputs': np.zeros(len(train_dict['text_encoder_inputs'])),
+      'text_decoder_inputs': np.zeros(len(train_dict['text_decoder_inputs'])),
+      'text_decoder_targets': np.zeros(len(train_dict['text_decoder_targets'])),
+      'image_decoder_targets': np.zeros(len(train_dict['image_decoder_targets']))
+    }
+
+    dict = {
+        'train': Dataset.from_dict(train_dict),
+        'val': Dataset.from_dict(empty_dict),
+        'test': Dataset.from_dict(empty_dict)
+    }
+
+    return dict

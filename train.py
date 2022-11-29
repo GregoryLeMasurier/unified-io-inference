@@ -151,23 +151,7 @@ if __name__ =='__main__':
     parser.add_argument("params_path")
     args = parser.parse_args()
 
-    train_path = os.path.join(args.path, "train")
-    val_path = os.path.join(args.path, "val")
-    test_path = os.path.join(args.path, "test")
-
-    train = os.listdir(train_path)
-    train = train[0:10]
-    val = os.listdir(val_path)
-    val = val[0:10]
-    test = os.listdir(test_path)
-    test = test[0:10]
-
-    print("Train Instances: " + str(len(train)))
-    print("Val Instances: " + str(len(val)))
-    print("Test Instances: " + str(len(test)))
-
-    train_data = process_data.getDataset(train_path, train)
-
+    dataset = process_data.getDataset(args.path)
     rng = jax.random.PRNGKey(42)#hard-coded for now
 
     conf = CONFIGS["small"]
@@ -177,6 +161,6 @@ if __name__ =='__main__':
     state = init_train_state(model, params, learning_rate=0.01)
 
     wandb.init()
-    train_and_evaluate(train_dataset=train_data, eval_dataset=None, test_dataset=None, state=state, rng=rng, epochs=1, bs=1)
+    train_and_evaluate(train_dataset=dataset['train'], eval_dataset=None, test_dataset=None, state=state, rng=rng, epochs=1, bs=1)
     wandb.run.save()
     
