@@ -19,6 +19,7 @@ from uio.model import UnifiedIOModel
 
 import process_data
 from datasets import Dataset
+import time
 
 #TODO: Warmup?
 def init_train_state(
@@ -66,7 +67,8 @@ def train_and_evaluate(train_dataset, eval_dataset, test_dataset, state, rng, ep
             state, metrics = train_step(state, batch)
             train_batch_metrics.append(metrics)
             if step == (total_steps - 1):#TODO: this is just a test
-                checkpoints.save_checkpoint(ckpt_dir=out_path, target=state, step=step)
+                checkpoint_prefix = "checkpoint_{}_".format(time.strftime("%Y%m%d-%H%M%S"))
+                checkpoints.save_checkpoint(ckpt_dir=out_path, target=state, prefix=checkpoint_prefix,step=step)
         train_batch_metrics = accumulate_metrics(train_batch_metrics)
 
 #Skip Val for now
