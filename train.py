@@ -76,18 +76,19 @@ def train_and_evaluate(train_dataset, eval_dataset, test_dataset, state, rng, ep
         ):
             state, metrics = train_step(state, batch)
             train_batch_metrics.append(metrics)
-            if step == (total_steps - 1):#TODO: this is just a test
+            if step == (step_per_epoch - 1):#TODO: this is just a test
+                print("SAVING CHECKPOINT!")
                 checkpoint_prefix = "checkpoint_{}_".format(time.strftime("%Y%m%d-%H%M%S"))
-                checkpoints.save_checkpoint(ckpt_dir=out_path, target=state, prefix=checkpoint_prefix,step=step)
+                checkpoints.save_checkpoint(ckpt_dir=out_path, target=state.params, prefix=checkpoint_prefix,step=step)
         train_batch_metrics = accumulate_metrics(train_batch_metrics)
 
         # ============== Validation ============= #
         eval_batch_metrics = []
-        for step, batch in enumerate(
+        for v_step, batch in enumerate(
             tqdm(
                 eval_data_collator(eval_dataset, bs),
                 total=len(eval_dataset),
-                desc="Evaluating ...",
+                desc="Validating ...",
                 position=2,
             )
         ):
@@ -100,9 +101,28 @@ def train_and_evaluate(train_dataset, eval_dataset, test_dataset, state, rng, ep
         wandb.log({
             "Train Loss": train_batch_metrics['loss'],
             "Train Accuracy": train_batch_metrics['accuracy'],
-            "Validation Loss": eval_batch_metrics['loss'],
+            #"Validation Loss": eval_batch_metrics['loss'],
             "Validation Accuracy": eval_batch_metrics['accuracy']
         }, step=epoch)
+
+    # ============== Test ============= #
+    test_batch_metrics = []
+    for t_step, batch in enumerate(
+        tqdm(
+            eval_data_collator(test_dataset, bs),
+            total=len(test_dataset),
+            desc="Evaluating ...",
+            position=3,
+        )
+    ):
+        metrics = eval_step(state, batch)
+        test_batch_metrics.append(metrics)
+    test_batch_metrics = accumulate_metrics(test_batch_metrics)
+
+    # Log Metrics to Weights & Biases
+    wandb.log({
+        "Test Accuracy": test_batch_metrics['accuracy']
+    }, step=epochs)
 
     return state
 
@@ -182,6 +202,6 @@ if __name__ =='__main__':
     state = init_train_state(model, params, learning_rate=5e-5)
 
     wandb.init()
-    train_and_evaluate(train_dataset=dataset['train'], eval_dataset=dataset['val'], test_dataset=None, state=state, rng=rng, epochs=20, bs=1, out_path=args.checkpoint_path)
+    train_and_evaluate(train_dataset=dataset['train'], eval_dataset=dataset['val'], test_dataset=dataset['test'], state=state, rng=rng, epochs=20, bs=1, out_path=args.checkpoint_path)
     wandb.run.save()
     

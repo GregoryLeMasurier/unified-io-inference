@@ -131,6 +131,28 @@ def getActions(path, data):
     tokenized_actions = tokenizer(action_seq, max_length=64, truncation=True, padding='max_length')
     return tokenized_actions['input_ids']
 
+def getDataDict(path, data):
+    image_encoder_inputs = getScenes(path, data)
+
+    text_encoder_inputs = getPrompts(path, data)
+
+    actions = getActions(path, data)
+    text_decoder_inputs = []
+    text_decoder_targets = []
+    for action in actions:
+        text_decoder_targets.append(action)
+        action.insert(0,0)
+        text_decoder_inputs.append(action)
+
+    data_dict = {
+      'image_encoder_inputs': np.array(image_encoder_inputs),
+      'text_encoder_inputs': np.array(text_encoder_inputs),
+      'text_decoder_inputs': np.array(text_decoder_inputs),
+      'text_decoder_targets': np.array(text_decoder_targets),
+      'image_decoder_targets': np.ndarray((len(data),1,1,3,),int) #Don't need so have it be size 1 to trigger the flag
+    }
+    return data_dict
+
 def getDataset(path): 
     train_path = os.path.join(path, "train")
     val_path = os.path.join(path, "val")
@@ -147,59 +169,10 @@ def getDataset(path):
     print("Val Instances: " + str(len(val)))
     print("Test Instances: " + str(len(test)))
 
-    image_encoder_inputs = getScenes(train_path, train)
-
-    text_encoder_inputs = getPrompts(train_path, train)
-
-    actions = getActions(train_path, train)
-    text_decoder_inputs = []
-    text_decoder_targets = []
-    for action in actions:
-        text_decoder_targets.append(action)
-        action.insert(0,0)
-        text_decoder_inputs.append(action)
-
-    train_dict = {
-      'image_encoder_inputs': np.array(image_encoder_inputs),
-      'text_encoder_inputs': np.array(text_encoder_inputs),
-      'text_decoder_inputs': np.array(text_decoder_inputs),
-      'text_decoder_targets': np.array(text_decoder_targets),
-      'image_decoder_targets': np.ndarray((len(train),1,1,3,),int) #Don't need so have it be size 1 to trigger the flag
-    }
-
-    val_image_encoder_inputs = getScenes(val_path, val)
-
-    val_text_encoder_inputs = getPrompts(val_path, val)
-
-    val_actions = getActions(val_path, val)
-    val_text_decoder_inputs = []
-    val_text_decoder_targets = []
-    for action in val_actions:
-        val_text_decoder_targets.append(action)
-        action.insert(0,0)
-        val_text_decoder_inputs.append(action)
-
-    val_dict = {
-      'image_encoder_inputs': np.array(val_image_encoder_inputs),
-      'text_encoder_inputs': np.array(val_text_encoder_inputs),
-      'text_decoder_inputs': np.array(val_text_decoder_inputs),
-      'text_decoder_targets': np.array(val_text_decoder_targets),
-      'image_decoder_targets': np.ndarray((len(val),1,1,3,),int) #Don't need so have it be size 1 to trigger the flag
-    }
-
-
-    empty_dict = {
-      'image_encoder_inputs': np.zeros(len(train_dict['image_encoder_inputs'])),
-      'text_encoder_inputs': np.zeros(len(train_dict['text_encoder_inputs'])),
-      'text_decoder_inputs': np.zeros(len(train_dict['text_decoder_inputs'])),
-      'text_decoder_targets': np.zeros(len(train_dict['text_decoder_targets'])),
-      'image_decoder_targets': np.zeros(len(train_dict['image_decoder_targets']))
-    }
-
     dict = {
-        'train': Dataset.from_dict(train_dict),
-        'val': Dataset.from_dict(val_dict),
-        'test': Dataset.from_dict(empty_dict)
+        'train': Dataset.from_dict(getDataDict(train_path, train)),
+        'val': Dataset.from_dict(getDataDict(val_path, val)),
+        'test': Dataset.from_dict(getDataDict(test_path, test))
     }
 
     return dict
