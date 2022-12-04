@@ -77,8 +77,7 @@ def train_and_evaluate(train_dataset, eval_dataset, test_dataset, state, rng, ep
             state, metrics = train_step(state, batch)
             train_batch_metrics.append(metrics)
             if step == (step_per_epoch - 1):#TODO: this is just a test
-                print("SAVING CHECKPOINT!")
-                checkpoint_prefix = "checkpoint_{}_".format(time.strftime("%Y%m%d-%H%M%S"))
+                checkpoint_prefix = "checkpoint_{}_step_".format(time.strftime("%Y%m%d-%H%M%S"))
                 checkpoints.save_checkpoint(ckpt_dir=out_path, target=state.params, prefix=checkpoint_prefix,step=step)
         train_batch_metrics = accumulate_metrics(train_batch_metrics)
 
@@ -106,23 +105,23 @@ def train_and_evaluate(train_dataset, eval_dataset, test_dataset, state, rng, ep
         }, step=epoch)
 
     # ============== Test ============= #
-    test_batch_metrics = []
-    for t_step, batch in enumerate(
-        tqdm(
-            eval_data_collator(test_dataset, bs),
-            total=len(test_dataset),
-            desc="Evaluating ...",
-            position=3,
-        )
-    ):
-        metrics = eval_step(state, batch)
-        test_batch_metrics.append(metrics)
-    test_batch_metrics = accumulate_metrics(test_batch_metrics)
+    #test_batch_metrics = []
+    #for t_step, batch in enumerate(
+    #    tqdm(
+    #        eval_data_collator(test_dataset, bs),
+    #        total=len(test_dataset),
+    #        desc="Evaluating ...",
+    #        position=3,
+    #    )
+    #):
+    #    metrics = eval_step(state, batch)
+    #    test_batch_metrics.append(metrics)
+    #test_batch_metrics = accumulate_metrics(test_batch_metrics)
 
     # Log Metrics to Weights & Biases
-    wandb.log({
-        "Test Accuracy": test_batch_metrics['accuracy']
-    }, step=epochs)
+    #wandb.log({
+    #    "Test Accuracy": test_batch_metrics['accuracy']
+    #}, step=epochs)
 
     return state
 
@@ -141,10 +140,12 @@ def train_step(
     image=batch['image_encoder_inputs'][0]
     prompt=batch['text_encoder_inputs'][0]
     actions_in=batch['text_decoder_inputs'][0]
+    #decoder_mask=batch['text_decoder_masks'][0]
     actions_out=batch['text_decoder_targets'][0]
     image_out=batch['image_decoder_targets'][0]
 
     def loss_fn(params):
+        #text_decoder_masks=decoder_mask,
         logits = state.apply_fn({'params': params}, image_encoder_inputs=image, text_encoder_inputs=prompt, text_decoder_inputs=actions_in, text_decoder_targets=actions_out, image_decoder_targets=image_out)
         logits = logits[0] #only use text logits
         loss = cross_entropy_loss(logits=logits, labels=actions_out)
@@ -164,8 +165,10 @@ def eval_step(
     image=batch['image_encoder_inputs'][0]
     prompt=batch['text_encoder_inputs'][0]
     actions_in=batch['text_decoder_inputs'][0]
+    #decoder_mask=batch['text_decoder_masks'][0]
     actions_out=batch['text_decoder_targets'][0]
     image_out=batch['image_decoder_targets'][0]
+    #text_decoder_masks=decoder_mask,
     logits = state.apply_fn({'params': state.params}, image_encoder_inputs=image, text_encoder_inputs=prompt, text_decoder_inputs=actions_in, text_decoder_targets=actions_out, image_decoder_targets=image_out)
     logits = logits[0] #only use text logits    
     return compute_metrics(logits=logits, labels=actions_out)
@@ -202,6 +205,6 @@ if __name__ =='__main__':
     state = init_train_state(model, params, learning_rate=5e-5)
 
     wandb.init()
-    train_and_evaluate(train_dataset=dataset['train'], eval_dataset=dataset['val'], test_dataset=dataset['test'], state=state, rng=rng, epochs=20, bs=1, out_path=args.checkpoint_path)
+    train_and_evaluate(train_dataset=dataset['train'], eval_dataset=dataset['val'], test_dataset=dataset['test'], state=state, rng=rng, epochs=1, bs=1, out_path=args.checkpoint_path)
     wandb.run.save()
     
