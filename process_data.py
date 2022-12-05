@@ -98,8 +98,8 @@ def processDataPoint(element_path):
         tokenizer = T5Tokenizer.from_pretrained(
         "t5-base", model_max_length=256, extra_ids=1200) 
 
-        cached_path = os.path.join(element_path, "final_processed_data.pkl")
-        backup_cached_path = os.path.join(element_path, "backup_final_processed_data.pkl")
+        cached_path = os.path.join(element_path, "processed_data.pkl")
+        #backup_cached_path = os.path.join(element_path, "backup_final_processed_data.pkl")
         if not os.path.isfile(cached_path):
             img = getSceneImg(element_path)
             image_encoder_input = getImgTensor(img)
@@ -133,12 +133,13 @@ def processDataPoint(element_path):
             'image_decoder_target': image_decoder_target
             }
             with open(cached_path, 'wb') as f:
-                pickle.dump(point_dict, f, protocol=pickle.HIGHEST_PROTOCOL)
+                serialized = pickle.dumps(point_dict)
+                pickle.dump(serialized, f, protocol=pickle.HIGHEST_PROTOCOL)
         else:
             with open(cached_path, 'rb') as f:
-                point_dict = pickle.load(f)
-                with open(backup_cached_path, 'wb') as bu:
-                    pickle.dump(dict, bu, protocol=pickle.HIGHEST_PROTOCOL)
+                point_dict = pickle.loads(pickle.load(f))
+                #with open(backup_cached_path, 'wb') as bu:
+                #    pickle.dumps(dict, bu, protocol=pickle.HIGHEST_PROTOCOL)
             #print("USING CACHED DATA: " + cached_path)
         return point_dict
 
@@ -205,11 +206,10 @@ def getDataset(path):
             'test': test
         }
         with open(cached_dataset_path, 'wb') as f:
-                pickle.dump(dict, f, protocol=pickle.HIGHEST_PROTOCOL)
+                serialized = pickle.dumps(dict)
+                pickle.dump(serialized, f, protocol=pickle.HIGHEST_PROTOCOL)
     else:
         with open(cached_dataset_path, 'rb') as f:
-            dict = pickle.load(f)
-            with open(backup_cached_dataset_path, 'wb') as bu:
-                pickle.dump(dict, bu, protocol=pickle.HIGHEST_PROTOCOL)
+                dict = pickle.loads(pickle.load(f))
 
     return dict
