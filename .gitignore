@@ -4,3 +4,4 @@ small.bin
 data/
 wandb/
 checkpoints/
+*.pkl

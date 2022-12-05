@@ -173,7 +173,7 @@ def getDataDict(path, data):
 def getDataset(path): 
     dict = {}
 
-    cached_dataset_path = os.path.join(path, "dec_masks_final_dataset.pkl")
+    cached_dataset_path = os.path.join(path, "final_dataset.pkl")
     if not os.path.isfile(cached_dataset_path):
         train_path = os.path.join(path, "train")
         val_path = os.path.join(path, "val")
