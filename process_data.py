@@ -3,6 +3,7 @@ import numpy as np
 import numpy.ma as ma
 
 import pickle
+import json
 from PIL import Image
 import re
 
@@ -15,6 +16,7 @@ from pose_quantizer import PoseQuantizer
 
 from datasets import Dataset
 from tqdm.auto import tqdm
+from numpy_encoder import NumpyEncoder
 
 def getSceneImg(element_path):
     img_path = os.path.join(element_path, "rgb_top/0.jpg")
@@ -98,8 +100,8 @@ def processDataPoint(element_path):
         tokenizer = T5Tokenizer.from_pretrained(
         "t5-base", model_max_length=256, extra_ids=1200) 
 
-        cached_path = os.path.join(element_path, "final_processed_data.pkl")
-        backup_cached_path = os.path.join(element_path, "backup_final_processed_data.pkl")
+        cached_path = os.path.join(element_path, "processed_data.json")
+        #backup_cached_path = os.path.join(element_path, "backup_final_processed_data.pkl")
         if not os.path.isfile(cached_path):
             img = getSceneImg(element_path)
             image_encoder_input = getImgTensor(img)
@@ -132,13 +134,16 @@ def processDataPoint(element_path):
             'text_decoder_target': text_decoder_target,
             'image_decoder_target': image_decoder_target
             }
-            with open(cached_path, 'wb') as f:
-                pickle.dump(point_dict, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+            serialized_point_dict = json.dumps(point_dict, cls=NumpyEncoder)
+            with open(cached_path, 'w') as f:
+                json.dump(serialized_point_dict, f)
         else:
-            with open(cached_path, 'rb') as f:
-                point_dict = pickle.load(f)
-                with open(backup_cached_path, 'wb') as bu:
-                    pickle.dump(dict, bu, protocol=pickle.HIGHEST_PROTOCOL)
+            with open(cached_path, 'r') as f:
+                point_dict = json.load(f)
+                point_dict = json.loads(point_dict)
+                #with open(backup_cached_path, 'wb') as bu:
+                #    pickle.dump(dict, bu, protocol=pickle.HIGHEST_PROTOCOL)
             #print("USING CACHED DATA: " + cached_path)
         return point_dict
 
@@ -176,8 +181,8 @@ def getDataDict(path, data):
 def getDataset(path): 
     dict = {}
 
-    cached_dataset_path = os.path.join(path, "final_dataset.pkl")
-    backup_cached_dataset_path = os.path.join(path, "backup_dataset.pkl")
+    cached_dataset_path = os.path.join(path, "final_dataset.json")
+    #backup_cached_dataset_path = os.path.join(path, "backup_dataset.pkl")
 
     if not os.path.isfile(cached_dataset_path):
         train_path = os.path.join(path, "train")
@@ -204,12 +209,15 @@ def getDataset(path):
             'val': val,
             'test': test
         }
-        with open(cached_dataset_path, 'wb') as f:
-                pickle.dump(dict, f, protocol=pickle.HIGHEST_PROTOCOL)
+        serialized_dict = json.dumps(dict, cls=NumpyEncoder)
+        with open(cached_dataset_path, 'w') as f:
+                json.dump(serialized_dict, f)
     else:
-        with open(cached_dataset_path, 'rb') as f:
-            dict = pickle.load(f)
-            with open(backup_cached_dataset_path, 'wb') as bu:
-                pickle.dump(dict, bu, protocol=pickle.HIGHEST_PROTOCOL)
+        with open(cached_dataset_path, 'r') as f:
+            dict = json.load(f)
+            dict = json.loads(dict)
+            #with open(backup_cached_dataset_path, 'wb') as bu:
+            #    pickle.dump(dict, bu, protocol=pickle.HIGHEST_PROTOCOL)
+            
 
     return dict
