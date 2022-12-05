@@ -99,6 +99,7 @@ def processDataPoint(element_path):
         "t5-base", model_max_length=256, extra_ids=1200) 
 
         cached_path = os.path.join(element_path, "final_processed_data.pkl")
+        backup_cached_path = os.path.join(element_path, "backup_final_processed_data.pkl")
         if not os.path.isfile(cached_path):
             img = getSceneImg(element_path)
             image_encoder_input = getImgTensor(img)
@@ -136,6 +137,8 @@ def processDataPoint(element_path):
         else:
             with open(cached_path, 'rb') as f:
                 point_dict = pickle.load(f)
+                with open(backup_cached_path, 'wb') as bu:
+                    pickle.dump(dict, bu, protocol=pickle.HIGHEST_PROTOCOL)
             #print("USING CACHED DATA: " + cached_path)
         return point_dict
 
@@ -174,6 +177,8 @@ def getDataset(path):
     dict = {}
 
     cached_dataset_path = os.path.join(path, "final_dataset.pkl")
+    backup_cached_dataset_path = os.path.join(path, "backup_dataset.pkl")
+
     if not os.path.isfile(cached_dataset_path):
         train_path = os.path.join(path, "train")
         val_path = os.path.join(path, "val")
@@ -204,5 +209,7 @@ def getDataset(path):
     else:
         with open(cached_dataset_path, 'rb') as f:
             dict = pickle.load(f)
+            with open(backup_cached_dataset_path, 'wb') as bu:
+                pickle.dump(dict, bu, protocol=pickle.HIGHEST_PROTOCOL)
 
     return dict

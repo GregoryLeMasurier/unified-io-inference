@@ -12,3 +12,6 @@ torchvision
 
 #for saving checkpoints
 tensorflow
+
+wandb
+datasets
