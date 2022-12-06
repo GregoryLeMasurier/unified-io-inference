@@ -1,7 +1,8 @@
 __pycache__/
 dbg_img.png
-small.bin
+*.bin
 data/
 wandb/
 checkpoints/
 *.pkl
+.ipynb_checkpoints/

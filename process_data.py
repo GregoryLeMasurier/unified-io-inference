@@ -115,7 +115,7 @@ def processDataPoint(element_path):
 
             pose_quantizer = getPoseQuantizer(trajectory)
             action = getAction(element_path, pose_quantizer)
-            action = tokenizer(action, max_length=64, truncation=True, padding='max_length')['input_ids']
+            action = tokenizer(action, max_length=28, padding='max_length')['input_ids']
             text_decoder_target = action
             seq_length = np.array(text_decoder_target).shape[-1]
             #text_decoder_masks = np.ones((seq_length, seq_length))
@@ -177,39 +177,39 @@ def getDataDict(path, data):
 def getDataset(path): 
     dict = {}
 
-    cached_dataset_path = os.path.join(path, "final_dataset.pkl")
-    backup_cached_dataset_path = os.path.join(path, "backup_dataset.pkl")
+    #cached_dataset_path = os.path.join(path, "7_final_dataset.pkl")
+    #backup_cached_dataset_path = os.path.join(path, "backup_dataset.pkl")
 
-    if not os.path.isfile(cached_dataset_path):
-        train_path = os.path.join(path, "train")
-        val_path = os.path.join(path, "val")
-        test_path = os.path.join(path, "test")
+    #if not os.path.isfile(cached_dataset_path):
+    train_path = os.path.join(path, "train")
+    val_path = os.path.join(path, "val")
+    test_path = os.path.join(path, "test")
 
-        train = os.listdir(train_path)
-        train = train[0:2000]#4000]
-        val = os.listdir(val_path)
-        val = val[0:100]
-        test = os.listdir(test_path)
-        test = test[0:100]
+    train = os.listdir(train_path)
+    train = train[0:16]#4000]
+    val = os.listdir(val_path)
+    val = val[0:16]
+    test = os.listdir(test_path)
+    test = test[0:16]
 
-        print("Train Instances: " + str(len(train)))
-        print("Val Instances: " + str(len(val)))
-        print("Test Instances: " + str(len(test)))
+    print("Train Instances: " + str(len(train)))
+    print("Val Instances: " + str(len(val)))
+    print("Test Instances: " + str(len(test)))
 
-        train = Dataset.from_dict(getDataDict(train_path, train))
-        val = Dataset.from_dict(getDataDict(val_path, val))
-        test = Dataset.from_dict(getDataDict(test_path, test))
+    train = Dataset.from_dict(getDataDict(train_path, train))
+    val = Dataset.from_dict(getDataDict(val_path, val))
+    test = Dataset.from_dict(getDataDict(test_path, test))
 
-        dict = {
-            'train': train,
-            'val': val,
-            'test': test
-        }
-        with open(cached_dataset_path, 'wb') as f:
-                serialized = pickle.dumps(dict)
-                pickle.dump(serialized, f, protocol=pickle.HIGHEST_PROTOCOL)
-    else:
-        with open(cached_dataset_path, 'rb') as f:
-                dict = pickle.loads(pickle.load(f))
+    dict = {
+        'train': train,
+        'val': val,
+        'test': test
+    }
+        #with open(cached_dataset_path, 'wb') as f:
+        #        serialized = pickle.dumps(dict)
+        #        pickle.dump(serialized, f, protocol=pickle.HIGHEST_PROTOCOL)
+    #else:
+    #    with open(cached_dataset_path, 'rb') as f:
+    #            dict = pickle.loads(pickle.load(f))
 
     return dict

@@ -10,15 +10,15 @@ import torch
 from torchvision.transforms import InterpolationMode
 from torchvision.transforms import functional as F
 
-#Modified constants because we added special tokens
+#Modified constants because we added special tokens and force image size
 vocab_size = 33200#33100
 BIN_START = vocab_size - 1100#1200
 NUM_DETECTION_BIN = 1000
 VOCAB_START = 100
-IMAGE_INPUT_SIZE = [384, 384]
+IMAGE_INPUT_SIZE = [256, 128] #[384, 384]
 IMAGE_INPUT_PATCH_SIZE = 16
 
-IMAGE_TARGET_SIZE = [256, 256]
+IMAGE_TARGET_SIZE = [256, 128] #[256, 256]
 
 
 def load_checkpoint(checkpoint):
