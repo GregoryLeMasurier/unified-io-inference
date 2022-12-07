@@ -12,6 +12,7 @@ from transformers import T5Tokenizer
 
 from uio import utils
 from pose_quantizer import PoseQuantizer
+import constants
 
 from datasets import Dataset
 from tqdm.auto import tqdm
@@ -72,7 +73,7 @@ def getPoseQuantizer(trajectory):
     bounds = trajectory['action_bounds']
     return PoseQuantizer(min(bounds['low']), max(bounds['high']), 100)
 
-def getAction(element_path, pose_quantizer):
+def getAction(element_path, pose_quantizer, bos):
     prefix_action = "action: "
     prefix_pose = "pose"
     prefix_rotation = "rotation"
@@ -89,55 +90,52 @@ def getAction(element_path, pose_quantizer):
     pp1 = prefix_pose + ": " + ''.join(pose_quantizer.encode_array(action['pose1_position'][0])) + " "
     pr1 = prefix_rotation + ": " + ''.join(pose_quantizer.encode_array(action['pose1_rotation'][0])) + " "
 
-    action_str = prefix_action + pp0 + pr0 + prefix_action + pp1 + pr1
+    action_str = bos + prefix_action + pp0 + pr0 + prefix_action + pp1 + pr1
     return action_str
 
 def processDataPoint(element_path):
         point_dict = {}
 
         tokenizer = T5Tokenizer.from_pretrained(
-        "t5-base", model_max_length=256, extra_ids=1200) 
+        "t5-base", model_max_length=256, extra_ids=constants.VOCAB_EXTRA_IDS) 
+        bos_token = tokenizer.bos_token if tokenizer.bos_token != None else tokenizer.convert_ids_to_tokens(0)
 
-        cached_path = os.path.join(element_path, "processed_data.pkl")
+        #cached_path = os.path.join(element_path, "processed_data.pkl")
         #backup_cached_path = os.path.join(element_path, "backup_final_processed_data.pkl")
-        if not os.path.isfile(cached_path):
-            img = getSceneImg(element_path)
-            image_encoder_input = getImgTensor(img)
-            #print("IMAGE SHAPE: " + str(img.shape))
-            #print("IMAGE TENSOR SHAPE: " + str(image_encoder_input.shape))
-            #print(image_encoder_input)
-            #TODO: convert float32 to bfloat16
- 
-            trajectory = getTrajectory(element_path)
+        #if not os.path.isfile(cached_path):
+        img = getSceneImg(element_path)
+        image_encoder_input = getImgTensor(img)
+        #print("IMAGE SHAPE: " + str(img.shape))
+        #print("IMAGE TENSOR SHAPE: " + str(image_encoder_input.shape))
+        #print(image_encoder_input)
+        #TODO: convert float32 to bfloat16
 
-            prompt = getPrompt(trajectory, img)
-            text_encoder_input = tokenizer(prompt, max_length=64, truncation=True, padding='max_length')['input_ids']
+        trajectory = getTrajectory(element_path)
 
-            pose_quantizer = getPoseQuantizer(trajectory)
-            action = getAction(element_path, pose_quantizer)
-            action = tokenizer(action, max_length=28, padding='max_length')['input_ids']
-            text_decoder_target = action
-            seq_length = np.array(text_decoder_target).shape[-1]
-            #text_decoder_masks = np.ones((seq_length, seq_length))
-            #text_decoder_masks = np.triu(text_decoder_masks, 1)
-            action.insert(0,0)
-            text_decoder_input = action
-            image_decoder_target = np.ndarray((1,1,1,),int)#Don't need so have it be size 1 to trigger the flag
+        prompt = getPrompt(trajectory, img)
+        text_encoder_input = tokenizer(prompt, max_length=64, truncation=True, padding='max_length')['input_ids']
 
-            point_dict = {
-            'image_encoder_input': image_encoder_input,
-            'text_encoder_input': text_encoder_input,
-            'text_decoder_input': text_decoder_input,
-            #'text_decoder_masks': text_decoder_masks,
-            'text_decoder_target': text_decoder_target,
-            'image_decoder_target': image_decoder_target
-            }
-            with open(cached_path, 'wb') as f:
-                serialized = pickle.dumps(point_dict)
-                pickle.dump(serialized, f, protocol=pickle.HIGHEST_PROTOCOL)
-        else:
-            with open(cached_path, 'rb') as f:
-                point_dict = pickle.loads(pickle.load(f))
+        pose_quantizer = getPoseQuantizer(trajectory)
+        action = getAction(element_path, pose_quantizer, bos_token)
+        action = tokenizer(action, max_length=constants.ACTION_SEQUENCE_LENGTH, padding='max_length')['input_ids']
+        text_decoder_target = action[1:]
+        text_decoder_input = action[:-1]
+        image_decoder_target = np.ndarray((1,1,1,),int)#Don't need so have it be size 1 to trigger the flag
+
+        point_dict = {
+        'image_encoder_input': image_encoder_input,
+        'text_encoder_input': text_encoder_input,
+        'text_decoder_input': text_decoder_input,
+        #'text_decoder_masks': text_decoder_masks,
+        'text_decoder_target': text_decoder_target,
+        'image_decoder_target': image_decoder_target
+        }
+            #with open(cached_path, 'wb') as f:
+            #    serialized = pickle.dumps(point_dict)
+            #    pickle.dump(serialized, f, protocol=pickle.HIGHEST_PROTOCOL)
+        #else:
+            #with open(cached_path, 'rb') as f:
+            #    point_dict = pickle.loads(pickle.load(f))
                 #with open(backup_cached_path, 'wb') as bu:
                 #    pickle.dumps(dict, bu, protocol=pickle.HIGHEST_PROTOCOL)
             #print("USING CACHED DATA: " + cached_path)
@@ -186,15 +184,20 @@ def getDataset(path):
     test_path = os.path.join(path, "test")
 
     train = os.listdir(train_path)
-    train = train[0:16]#4000]
     val = os.listdir(val_path)
-    val = val[0:16]
     test = os.listdir(test_path)
-    test = test[0:16]
 
-    print("Train Instances: " + str(len(train)))
-    print("Val Instances: " + str(len(val)))
-    print("Test Instances: " + str(len(test)))
+    num_train = constants.DATASET_SAMPLE["train"] if constants.DATASET_SAMPLE["train"] < len(train) else len(train)
+    num_val = constants.DATASET_SAMPLE["val"] if constants.DATASET_SAMPLE["val"] < len(val) else len(val)
+    num_test = constants.DATASET_SAMPLE["test"] if constants.DATASET_SAMPLE["test"] < len(test) else len(test)
+
+    train = train[0:num_train]
+    val = val[0:num_val]
+    test = test[0:num_test]
+
+    print("Train Instances: " + str(num_train))
+    print("Val Instances: " + str(num_val))
+    print("Test Instances: " + str(num_test))
 
     train = Dataset.from_dict(getDataDict(train_path, train))
     val = Dataset.from_dict(getDataDict(val_path, val))

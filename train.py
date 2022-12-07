@@ -1,3 +1,5 @@
+#Gregory LeMasurier
+
 # Most Jax functions were slightly / completely rewritten following the guide here: https://wandb.ai/jax-series/simple-training-loop/reports/Writing-a-Training-Loop-in-JAX-FLAX--VmlldzoyMzA4ODEy
 import argparse
 import wandb
@@ -18,6 +20,7 @@ from uio.configs import CONFIGS, VAE_CONFIG
 from uio.model import UnifiedIOModel
 
 import process_data
+import constants
 from datasets import Dataset
 import time
 
@@ -78,7 +81,7 @@ def train_and_evaluate(train_dataset, eval_dataset, test_dataset, state, rng, ep
             train_batch_metrics.append(metrics)
             if step == (step_per_epoch - 1):
                 checkpoint_prefix = "checkpoint_{}_step_".format(time.strftime("%Y%m%d-%H%M%S"))
-                checkpoints.save_checkpoint(ckpt_dir=out_path, target=state.params, prefix=checkpoint_prefix,step=step)
+                checkpoints.save_checkpoint(ckpt_dir=out_path, target=state.params, prefix=checkpoint_prefix,step=epoch)
         train_batch_metrics = accumulate_metrics(train_batch_metrics)
 
         # ============== Validation ============= #
@@ -135,12 +138,12 @@ def accumulate_metrics(metrics):
 def train_step(
     state: train_state.TrainState, batch: jnp.ndarray
 ):
-    #import ipdb
-    #ipdb.set_trace()
+#    import ipdb
+#    ipdb.set_trace()
     image=batch['image_encoder_inputs'].squeeze(0) # (1,1,384,384,3) -> (1,384,384,3))
     prompt=batch['text_encoder_inputs'].squeeze(0)
-    actions_in=batch['text_decoder_inputs'].squeeze(0)[:, :-1]
-    actions_out=batch['text_decoder_targets'].squeeze(0)[:, 1:]
+    actions_in=batch['text_decoder_inputs'].squeeze(0)
+    actions_out=batch['text_decoder_targets'].squeeze(0)
     image_out=batch['image_decoder_targets'].squeeze(0)
 
     def loss_fn(params):
@@ -162,8 +165,8 @@ def eval_step(
 ):
     image=batch['image_encoder_inputs'].squeeze(0) # (1,1,384,384,3) -> (1,384,384,3))
     prompt=batch['text_encoder_inputs'].squeeze(0)
-    actions_in=batch['text_decoder_inputs'].squeeze(0)[:, :-1]
-    actions_out=batch['text_decoder_targets'].squeeze(0)[:, 1:]
+    actions_in=batch['text_decoder_inputs'].squeeze(0)
+    actions_out=batch['text_decoder_targets'].squeeze(0)
     image_out=batch['image_decoder_targets'].squeeze(0)
     logits = state.apply_fn({'params': state.params}, enable_dropout=False, image_encoder_inputs=image, text_encoder_inputs=prompt, text_decoder_inputs=actions_in, text_decoder_targets=actions_out, image_decoder_targets=image_out)
     logits = logits[0] #only use text logits    
@@ -196,12 +199,12 @@ if __name__ =='__main__':
 
     conf = CONFIGS["small"]
     module = network.Transformer(config=conf, vae_config=VAE_CONFIG)
-    model = UnifiedIOModel(module, text_decoder_length=32, image_decoder_length=1)
+    model = UnifiedIOModel(module, text_decoder_length=constants.DECODER_LENGTH, image_decoder_length=1)
     params = utils.load_checkpoint(args.params_path)
-    state = init_train_state(model, params, learning_rate=5e-5)
+    state = init_train_state(model, params, learning_rate=5e-4)
 
 
     wandb.init()
-    train_and_evaluate(train_dataset=dataset['train'], eval_dataset=dataset['val'], test_dataset=dataset['test'], state=state, rng=rng, epochs=1, bs=3, out_path=args.checkpoint_path)
+    train_and_evaluate(train_dataset=dataset['train'], eval_dataset=dataset['val'], test_dataset=dataset['test'], state=state, rng=rng, epochs=100, bs=1, out_path=args.checkpoint_path)
     wandb.run.save()
     
