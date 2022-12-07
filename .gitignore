@@ -6,3 +6,4 @@ wandb/
 checkpoints/
 *.pkl
 .ipynb_checkpoints/
+models/

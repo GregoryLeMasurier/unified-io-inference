@@ -11,7 +11,7 @@ from torchvision.ops import masks_to_boxes
 from transformers import T5Tokenizer
 
 from uio import utils
-from pose_quantizer import PoseQuantizer
+from data_processing.pose_quantizer import PoseQuantizer
 import constants
 
 from datasets import Dataset

@@ -19,7 +19,7 @@ from uio import network
 from uio.configs import CONFIGS, VAE_CONFIG
 from uio.model import UnifiedIOModel
 
-import process_data
+import data_processing.process_data
 import constants
 from datasets import Dataset
 import time
@@ -60,8 +60,17 @@ def eval_data_collator(dataset: Dataset, batch_size: int):
 
         yield batch
 
-def train_and_evaluate(train_dataset, eval_dataset, test_dataset, state, rng, epochs, bs, out_path):   
-    step_per_epoch = len(train_dataset) / bs
+def train_and_evaluate(dataset, state, rng, config, run_evaluation): 
+    train_dataset = dataset['train']  
+    eval_dataset = dataset['val']  
+    test_dataset = dataset['test']  
+
+    bs = config['batch_size']
+    epochs = config['epochs']
+    checkpoint_path = config['checkpoint_path']
+    enable_wandb = config['enable_wandb']
+
+    step_per_epoch = len(train_dataset) // bs
     total_steps = step_per_epoch * epochs
 
     for epoch in tqdm(range(1, epochs + 1)):
@@ -79,9 +88,9 @@ def train_and_evaluate(train_dataset, eval_dataset, test_dataset, state, rng, ep
         ):
             state, metrics = train_step(state, batch)
             train_batch_metrics.append(metrics)
-            if step == (step_per_epoch - 1):
+            if checkpoint_path != None and step == (step_per_epoch - 1):
                 checkpoint_prefix = "checkpoint_{}_step_".format(time.strftime("%Y%m%d-%H%M%S"))
-                checkpoints.save_checkpoint(ckpt_dir=out_path, target=state.params, prefix=checkpoint_prefix,step=epoch)
+                checkpoints.save_checkpoint(ckpt_dir=checkpoint_path, target=state.params, prefix=checkpoint_prefix,step=epoch)
         train_batch_metrics = accumulate_metrics(train_batch_metrics)
 
         # ============== Validation ============= #
@@ -89,7 +98,7 @@ def train_and_evaluate(train_dataset, eval_dataset, test_dataset, state, rng, ep
         for v_step, batch in enumerate(
             tqdm(
                 eval_data_collator(eval_dataset, bs),
-                total=len(eval_dataset) / bs,
+                total=len(eval_dataset) // bs,
                 desc="Validating ...",
                 position=2,
             )
@@ -100,30 +109,33 @@ def train_and_evaluate(train_dataset, eval_dataset, test_dataset, state, rng, ep
 
 
         # Log Metrics to Weights & Biases
-        wandb.log({
-            "Train Loss": train_batch_metrics['loss'],
-            "Train Accuracy": train_batch_metrics['accuracy'],
-            "Validation Accuracy": eval_batch_metrics['accuracy']
-        }, step=epoch)
+        if enable_wandb:
+            wandb.log({
+                "Train Loss": train_batch_metrics['loss'],
+                "Train Accuracy": train_batch_metrics['accuracy'],
+                "Validation Accuracy": eval_batch_metrics['accuracy']
+            }, step=epoch)
 
     # ============== Test ============= #
-    #test_batch_metrics = []
-    #for t_step, batch in enumerate(
-    #    tqdm(
-    #        eval_data_collator(test_dataset, bs),
-    #        total=len(test_dataset),
-    #        desc="Evaluating ...",
-    #        position=3,
-    #    )
-    #):
-    #    metrics = eval_step(state, batch)
-    #    test_batch_metrics.append(metrics)
-    #test_batch_metrics = accumulate_metrics(test_batch_metrics)
+    if run_evaluation:
+        test_batch_metrics = []
+        for t_step, batch in enumerate(
+            tqdm(
+                eval_data_collator(test_dataset, bs),
+                total=len(test_dataset),
+                desc="Evaluating ...",
+                position=3,
+            )
+        ):
+            metrics = eval_step(state, batch)
+            test_batch_metrics.append(metrics)
+        test_batch_metrics = accumulate_metrics(test_batch_metrics)
 
-    # Log Metrics to Weights & Biases
-    #wandb.log({
-    #    "Test Accuracy": test_batch_metrics['accuracy']
-    #}, step=epochs)
+        # Log Metrics to Weights & Biases
+        if enable_wandb:
+            wandb.log({
+                "Test Accuracy": test_batch_metrics['accuracy']
+            }, step=epochs)
 
     return state
 
@@ -147,7 +159,13 @@ def train_step(
     image_out=batch['image_decoder_targets'].squeeze(0)
 
     def loss_fn(params):
-        logits = state.apply_fn({'params': params}, enable_dropout=False, image_encoder_inputs=image, text_encoder_inputs=prompt, text_decoder_inputs=actions_in, text_decoder_targets=actions_out, image_decoder_targets=image_out)
+        logits = state.apply_fn({'params': params},
+                                enable_dropout=True, 
+                                image_encoder_inputs=image, 
+                                text_encoder_inputs=prompt, 
+                                text_decoder_inputs=actions_in, 
+                                text_decoder_targets=actions_out, 
+                                image_decoder_targets=image_out)
         logits = logits[0] #only use text logits
         loss = cross_entropy_loss(logits=logits, labels=actions_out)
         return loss, logits
@@ -168,7 +186,13 @@ def eval_step(
     actions_in=batch['text_decoder_inputs'].squeeze(0)
     actions_out=batch['text_decoder_targets'].squeeze(0)
     image_out=batch['image_decoder_targets'].squeeze(0)
-    logits = state.apply_fn({'params': state.params}, enable_dropout=False, image_encoder_inputs=image, text_encoder_inputs=prompt, text_decoder_inputs=actions_in, text_decoder_targets=actions_out, image_decoder_targets=image_out)
+    logits = state.apply_fn({'params': state.params}, 
+                            enable_dropout=False, 
+                            image_encoder_inputs=image, 
+                            text_encoder_inputs=prompt, 
+                            text_decoder_inputs=actions_in, 
+                            text_decoder_targets=actions_out, 
+                            image_decoder_targets=image_out)
     logits = logits[0] #only use text logits    
     return compute_metrics(logits=logits, labels=actions_out)
 
@@ -189,22 +213,63 @@ def compute_metrics(*, logits, labels):
 
 if __name__ =='__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("data_path")
-    parser.add_argument("params_path")
-    parser.add_argument("checkpoint_path")
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=3,
+    )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=100,
+    )
+    parser.add_argument(
+        "--learning_rate",
+        type=float,
+        default=5e-4,
+    )
+    parser.add_argument(
+        "--checkpoint_path",
+        default=None
+    )
+    parser.add_argument(
+        "--enable_wandb",
+        type=bool,
+        default=True,
+    )
+    parser.add_argument(
+        "--evaluate",
+        type=bool,
+        default=False,
+    )
+    parser.add_argument(
+        "--model_size",
+        choices=["small", "base", "large", "xl"],
+        default="small",
+    )
+    parser.add_argument("--data_path")
+    parser.add_argument("--params_path")
     args = parser.parse_args()
 
-    dataset = process_data.getDataset(args.data_path)
-    rng = jax.random.PRNGKey(42)#hard-coded for now
+    dataset = data_processing.process_data.getDataset(args.data_path)
+    rng = jax.random.PRNGKey(constants.RANDOM_KEY)
 
-    conf = CONFIGS["small"]
+    conf = CONFIGS[args.model_size]
     module = network.Transformer(config=conf, vae_config=VAE_CONFIG)
     model = UnifiedIOModel(module, text_decoder_length=constants.DECODER_LENGTH, image_decoder_length=1)
     params = utils.load_checkpoint(args.params_path)
-    state = init_train_state(model, params, learning_rate=5e-4)
+    state = init_train_state(model, params, learning_rate=args.learning_rate)
 
+    config = {
+        "epochs": args.epochs,
+        "batch_size": args.batch_size,
+        "checkpoint_path": args.checkpoint_path,
+        "enable_wandb": args.enable_wandb
+    }
 
-    wandb.init()
-    train_and_evaluate(train_dataset=dataset['train'], eval_dataset=dataset['val'], test_dataset=dataset['test'], state=state, rng=rng, epochs=100, bs=1, out_path=args.checkpoint_path)
-    wandb.run.save()
+    if args.enable_wandb:
+        wandb.init()
+    train_and_evaluate(dataset=dataset, state=state, rng=rng, config=config, run_evaluation=args.evaluate)
+    if args.enable_wandb:
+        wandb.run.save()
     
