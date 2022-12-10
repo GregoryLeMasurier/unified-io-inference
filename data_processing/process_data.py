@@ -17,8 +17,8 @@ import constants
 from datasets import Dataset
 from tqdm.auto import tqdm
 
-def getSceneImg(element_path):
-    img_path = os.path.join(element_path, "rgb_top/0.jpg")
+def getSceneImg(element_path, file_name):
+    img_path = os.path.join(element_path, file_name)
     assert os.path.exists(img_path)
     img = None
     with Image.open(img_path) as scene:
@@ -73,25 +73,72 @@ def getPoseQuantizer(trajectory):
     bounds = trajectory['action_bounds']
     return PoseQuantizer(min(bounds['low']), max(bounds['high']), 100)
 
-def getAction(element_path, pose_quantizer, bos):
-    prefix_action = "action: "
-    prefix_pose = "pose"
-    prefix_rotation = "rotation"
-
+def getRawAction(element_path):
     action_path = os.path.join(element_path, "action.pkl")
     assert os.path.exists(action_path)
 
     with open(action_path, "rb") as f:
         action = pickle.load(f)
 
+    isValid = True
+    if action['pose0_position'].shape[0] != 1:
+        isValid = False
+        #print("WARNING MORE THAN ONE ACTION PER POSE! " + str(action['pose0_position'].shape[0]))
+        #print(action)
+    #print(action['pose0_position'])
+
+    pose0 = (action['pose0_position'][0], action['pose0_rotation'][0])
+    pose1 = (action['pose1_position'][0], action['pose1_rotation'][0])
+
+    raw_action = [pose0, pose1]
+
+    return raw_action, isValid
+
+def getRawActionString(element_path):
+    raw_action, isValid = getRawAction(element_path)
+    raw_string = 'position0:'+ str(raw_action[0][0]) + ';rotation0:' +  str(raw_action[0][1]) + ';position1:'+ str(raw_action[1][0]) + ';rotation1:' +  str(raw_action[1][1])
+    return raw_string, isValid
+
+def getAction(element_path, pose_quantizer, bos=""):
+    prefix_action = "action: "
+    prefix_pose = "pose"
+    prefix_rotation = "rotation"
+
+    raw_action, _ = getRawAction(element_path)
+
     #Hard-coded for this task
-    pp0 = prefix_pose + ": " + ''.join(pose_quantizer.encode_array(action['pose0_position'][0])) + " "
-    pr0 = prefix_rotation + ": " + ''.join(pose_quantizer.encode_array(action['pose0_rotation'][0])) + " "
-    pp1 = prefix_pose + ": " + ''.join(pose_quantizer.encode_array(action['pose1_position'][0])) + " "
-    pr1 = prefix_rotation + ": " + ''.join(pose_quantizer.encode_array(action['pose1_rotation'][0])) + " "
+    pp0 = prefix_pose + ": " + ''.join(pose_quantizer.encode_array(raw_action[0][0])) + " "
+    pr0 = prefix_rotation + ": " + ''.join(pose_quantizer.encode_array(raw_action[0][1])) + " "
+    pp1 = prefix_pose + ": " + ''.join(pose_quantizer.encode_array(raw_action[1][0])) + " "
+    pr1 = prefix_rotation + ": " + ''.join(pose_quantizer.encode_array(raw_action[1][1])) + " "
 
     action_str = bos + prefix_action + pp0 + pr0 + prefix_action + pp1 + pr1
     return action_str
+
+def getRawData(element_path):
+    raw_dict = {}
+
+    img_file_name = "0.jpg"
+
+    img = getSceneImg(element_path, "rgb_top/0.jpg")
+    trajectory = getTrajectory(element_path)
+    #print(trajectory)
+    prompt = getPrompt(trajectory, img)
+    #print(prompt)
+
+    pose_quantizer = getPoseQuantizer(trajectory)
+    action = getAction(element_path, pose_quantizer)
+
+    raw_action, isValid = getRawActionString(element_path)
+
+    raw_dict = {
+    'image_path': img_file_name,
+    'prompt': prompt,
+    'action': action,
+    'raw_answer': raw_action
+    }
+
+    return raw_dict, isValid
 
 def processDataPoint(element_path):
         point_dict = {}
@@ -103,7 +150,7 @@ def processDataPoint(element_path):
         #cached_path = os.path.join(element_path, "processed_data.pkl")
         #backup_cached_path = os.path.join(element_path, "backup_final_processed_data.pkl")
         #if not os.path.isfile(cached_path):
-        img = getSceneImg(element_path)
+        img = getSceneImg(element_path, "rgb_top/0.jpg")
         image_encoder_input = getImgTensor(img)
         #print("IMAGE SHAPE: " + str(img.shape))
         #print("IMAGE TENSOR SHAPE: " + str(image_encoder_input.shape))
@@ -140,8 +187,6 @@ def processDataPoint(element_path):
                 #    pickle.dumps(dict, bu, protocol=pickle.HIGHEST_PROTOCOL)
             #print("USING CACHED DATA: " + cached_path)
         return point_dict
-
-
 
 def getDataDict(path, data):
     image_encoder_inputs = []

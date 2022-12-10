@@ -7,3 +7,4 @@ checkpoints/
 *.pkl
 .ipynb_checkpoints/
 models/
+*.egg-info

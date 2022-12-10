@@ -1,5 +1,7 @@
 # UnifiedIO
 
+*PLEASE SEE [FinalProjectSetup.md](https://github.com/GregoryLeMasurier/unified-io-inference/blob/main/FinalProjectSetup.md) FOR MY FINAL PROJECT INSTRUCTIONS*
+
 This repo contains code to run models from our paper [Unified-IO: A Unified Model for Vision, Language, and Multi-Modal Tasks](https://arxiv.org/abs/2206.08916).
 
 ## Installation

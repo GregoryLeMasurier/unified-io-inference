@@ -19,10 +19,11 @@ from uio import network
 from uio.configs import CONFIGS, VAE_CONFIG
 from uio.model import UnifiedIOModel
 
-import data_processing.process_data
+from data_processing import simple_manipulation_dataset, custom_dataloader
 import constants
 from datasets import Dataset
 import time
+import os
 
 #TODO: Warmup?
 def init_train_state(
@@ -60,17 +61,17 @@ def eval_data_collator(dataset: Dataset, batch_size: int):
 
         yield batch
 
-def train_and_evaluate(dataset, state, rng, config, run_evaluation): 
-    train_dataset = dataset['train']  
-    eval_dataset = dataset['val']  
-    test_dataset = dataset['test']  
+def train_and_evaluate(dataloaders, state, rng, config, run_evaluation): 
+    train_dataloader = dataloaders['train']  
+    val_dataloader = dataloaders['val']  
+    test_dataloader = dataloaders['test']  
 
-    bs = config['batch_size']
+    #bs = config['batch_size']
     epochs = config['epochs']
     checkpoint_path = config['checkpoint_path']
     enable_wandb = config['enable_wandb']
 
-    step_per_epoch = len(train_dataset) // bs
+    step_per_epoch = len(train_dataloader)# // bs
     total_steps = step_per_epoch * epochs
 
     for epoch in tqdm(range(1, epochs + 1)):
@@ -80,7 +81,7 @@ def train_and_evaluate(dataset, state, rng, config, run_evaluation):
         train_batch_metrics = []
         for step, batch in enumerate(
             tqdm(
-                train_data_collator(input_rng, train_dataset, bs),
+                train_dataloader,
                 total=step_per_epoch,
                 desc="Training...",
                 position=1,
@@ -92,28 +93,32 @@ def train_and_evaluate(dataset, state, rng, config, run_evaluation):
                 checkpoint_prefix = "checkpoint_{}_step_".format(time.strftime("%Y%m%d-%H%M%S"))
                 checkpoints.save_checkpoint(ckpt_dir=checkpoint_path, target=state.params, prefix=checkpoint_prefix,step=epoch)
         train_batch_metrics = accumulate_metrics(train_batch_metrics)
+        # Log Metrics to Weights & Biases
+        if enable_wandb:
+            wandb.log({
+                "Train Loss": train_batch_metrics['loss'],
+                "Train Accuracy": train_batch_metrics['accuracy']
+            }, step=epoch)
 
         # ============== Validation ============= #
-        eval_batch_metrics = []
+        val_batch_metrics = []
         for v_step, batch in enumerate(
             tqdm(
-                eval_data_collator(eval_dataset, bs),
-                total=len(eval_dataset) // bs,
+                val_dataloader,
+                total=len(val_dataloader),# // bs,
                 desc="Validating ...",
                 position=2,
             )
         ):
             metrics = eval_step(state, batch)
-            eval_batch_metrics.append(metrics)
-        eval_batch_metrics = accumulate_metrics(eval_batch_metrics)
+            val_batch_metrics.append(metrics)
+        val_batch_metrics = accumulate_metrics(val_batch_metrics)
 
 
         # Log Metrics to Weights & Biases
         if enable_wandb:
             wandb.log({
-                "Train Loss": train_batch_metrics['loss'],
-                "Train Accuracy": train_batch_metrics['accuracy'],
-                "Validation Accuracy": eval_batch_metrics['accuracy']
+                "Validation Accuracy": val_batch_metrics['accuracy']
             }, step=epoch)
 
     # ============== Test ============= #
@@ -121,8 +126,8 @@ def train_and_evaluate(dataset, state, rng, config, run_evaluation):
         test_batch_metrics = []
         for t_step, batch in enumerate(
             tqdm(
-                eval_data_collator(test_dataset, bs),
-                total=len(test_dataset),
+                test_dataloader,
+                total=len(test_dataloader),
                 desc="Evaluating ...",
                 position=3,
             )
@@ -251,7 +256,19 @@ if __name__ =='__main__':
     parser.add_argument("--params_path")
     args = parser.parse_args()
 
-    dataset = data_processing.process_data.getDataset(args.data_path)
+    train_path = os.path.join(args.data_path, "train")
+    val_path = os.path.join(args.data_path, "val")
+    test_path = os.path.join(args.data_path, "test")
+
+    train_data = simple_manipulation_dataset.SimpleManipulationDataset(train_path)
+    val_data = simple_manipulation_dataset.SimpleManipulationDataset(val_path)
+    test_data = simple_manipulation_dataset.SimpleManipulationDataset(test_path)
+
+    assert min(len(train_data), len(val_data), len(test_data)) > args.batch_size
+    train_dataloader = custom_dataloader.CustomDataLoader(train_data, batch_size=args.batch_size, shuffle=True, num_workers=0)
+    val_dataloader = custom_dataloader.CustomDataLoader(val_data, batch_size=args.batch_size, shuffle=True, num_workers=0)
+    test_dataloader = custom_dataloader.CustomDataLoader(test_data, batch_size=args.batch_size, shuffle=True, num_workers=0)
+
     rng = jax.random.PRNGKey(constants.RANDOM_KEY)
 
     conf = CONFIGS[args.model_size]
@@ -267,9 +284,15 @@ if __name__ =='__main__':
         "enable_wandb": args.enable_wandb
     }
 
+    dataloaders = {
+        'train': train_dataloader,
+        'val': val_dataloader,
+        'test': test_dataloader
+    }
+
     if args.enable_wandb:
         wandb.init()
-    train_and_evaluate(dataset=dataset, state=state, rng=rng, config=config, run_evaluation=args.evaluate)
+    train_and_evaluate(dataloaders=dataloaders, state=state, rng=rng, config=config, run_evaluation=args.evaluate)
     if args.enable_wandb:
         wandb.run.save()
     
