@@ -20,10 +20,15 @@ from uio.configs import CONFIGS, VAE_CONFIG
 from uio.model import UnifiedIOModel
 
 from data_processing import simple_manipulation_dataset, custom_dataloader
+from data_processing.pose_quantizer import PoseQuantizer
 import constants
 from datasets import Dataset
 import time
 import os
+import re
+import math
+
+from transformers import T5Tokenizer
 
 #TODO: Warmup?
 def init_train_state(
@@ -90,7 +95,7 @@ def train_and_evaluate(dataloaders, state, rng, config, run_evaluation):
             state, metrics = train_step(state, batch)
             train_batch_metrics.append(metrics)
             if checkpoint_path != None and step == (step_per_epoch - 1):
-                checkpoint_prefix = "checkpoint_{}_step_".format(time.strftime("%Y%m%d-%H%M%S"))
+                checkpoint_prefix = "checkpoint_{}_epoch_".format(time.strftime("%Y%m%d-%H%M%S"))
                 checkpoints.save_checkpoint(ckpt_dir=checkpoint_path, target=state.params, prefix=checkpoint_prefix,step=epoch)
         train_batch_metrics = accumulate_metrics(train_batch_metrics)
         # Log Metrics to Weights & Biases
@@ -122,6 +127,7 @@ def train_and_evaluate(dataloaders, state, rng, config, run_evaluation):
             }, step=epoch)
 
     # ============== Test ============= #
+    # to only run test, run with epoch = 0
     if run_evaluation:
         test_batch_metrics = []
         for t_step, batch in enumerate(
@@ -132,14 +138,16 @@ def train_and_evaluate(dataloaders, state, rng, config, run_evaluation):
                 position=3,
             )
         ):
-            metrics = eval_step(state, batch)
+            metrics = test_step(state, batch)
             test_batch_metrics.append(metrics)
         test_batch_metrics = accumulate_metrics(test_batch_metrics)
 
         # Log Metrics to Weights & Biases
         if enable_wandb:
             wandb.log({
-                "Test Accuracy": test_batch_metrics['accuracy']
+                "Test Accuracy": test_batch_metrics['accuracy'],
+                "Test Euclidean Dist 3D": test_batch_metrics['euclidean_distance_3d'],
+                "Test Euclidean Dist 2D": test_batch_metrics['euclidean_distance_2d']
             }, step=epochs)
 
     return state
@@ -201,6 +209,27 @@ def eval_step(
     logits = logits[0] #only use text logits    
     return compute_metrics(logits=logits, labels=actions_out)
 
+#@jax.jit
+def test_step(
+    state: train_state.TrainState, batch: jnp.ndarray
+):
+    image=batch['image_encoder_inputs'].squeeze(0) # (1,1,384,384,3) -> (1,384,384,3))
+    prompt=batch['text_encoder_inputs'].squeeze(0)
+    actions_in=batch['text_decoder_inputs'].squeeze(0)
+    actions_out=batch['text_decoder_targets'].squeeze(0)
+    image_out=batch['image_decoder_targets'].squeeze(0)
+    raw_poses=batch['raw_poses'].squeeze(0)
+
+    logits = state.apply_fn({'params': state.params}, 
+                            enable_dropout=False, 
+                            image_encoder_inputs=image, 
+                            text_encoder_inputs=prompt, 
+                            text_decoder_inputs=actions_in, 
+                            text_decoder_targets=actions_out, 
+                            image_decoder_targets=image_out)
+    logits = logits[0] #only use text logits    
+    return compute_test_metrics(logits=logits, labels=actions_out, raw_poses=raw_poses)
+
 def cross_entropy_loss(*, logits, labels):
     one_hot_encoded_labels = jax.nn.one_hot(labels, logits.shape[-1])
     return optax.softmax_cross_entropy(
@@ -213,6 +242,43 @@ def compute_metrics(*, logits, labels):
   metrics = {
       'loss': loss,
       'accuracy': accuracy,
+  }
+  return metrics
+
+def compute_test_metrics(*, logits, labels, raw_poses):
+  tokenizer = T5Tokenizer.from_pretrained(
+      "t5-base", model_max_length=256, extra_ids=constants.VOCAB_EXTRA_IDS)
+  #hardcoded max and min of dataset to make things easier for now
+  MIN = -0.5
+  MAX = 0.75
+  pq = PoseQuantizer(MIN, MAX, 100)
+  loss = cross_entropy_loss(logits=logits, labels=labels)
+  accuracy = jnp.mean(jnp.argmax(logits, -1) == labels)
+
+  dist_3d = 0
+  dist_2d = 0
+  for pred, actual in zip(jnp.argmax(logits, -1), raw_poses):
+    dec_pred = tokenizer.decode(pred[:-1]) #doesn't work with jit, unsurprisingly
+    pred_vals = re.findall(r'\<.*?\>', dec_pred)
+    #pred_vals = [(tokenizer.vocab_size - 1) - token for token in pred if token >= (tokenizer.vocab_size - constants.VOCAB_EXTRA_IDS)]
+    if len(pred_vals) != 14:
+        dist_3d += 2 * abs(np.linalg.norm(np.array((MIN,MIN,MIN)) - np.array((MAX,MAX,MAX)))) #default to 2 * max distance (since we have 2 poses)
+        dist_2d += 2 * abs(math.dist((MIN,MIN), (MAX,MAX))) #default to 2 * max distance (since we have 2 poses)
+
+    else:
+        pred_dec_vals = pq.decode_array(pred_vals)
+        #ignore rotation for now. Hardcoded position indices
+        dist_3d += abs(np.linalg.norm(np.array((pred_dec_vals[0],pred_dec_vals[1],pred_dec_vals[2])) - np.array((actual[0], actual[1], actual[2]))))
+        dist_2d += abs(math.dist((pred_dec_vals[7],pred_dec_vals[8]), (actual[7], actual[8])))
+  num_instances = (2*len(raw_poses))
+  avg_dist_3d = dist_3d / num_instances
+  avg_dist_2d = dist_2d / num_instances
+
+  metrics = {
+      'loss': loss,
+      'accuracy': accuracy,
+      'euclidean_distance_3d': avg_dist_3d,
+      'euclidean_distance_2d': avg_dist_2d
   }
   return metrics
 

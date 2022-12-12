@@ -5,6 +5,7 @@ from transformers import T5Tokenizer
 import constants
 import numpy as np
 import csv
+import re
 
 def sort_files(lst):
   lst.sort(key=lambda x: int(os.path.basename(x)))
@@ -45,12 +46,19 @@ class SimpleManipulationDataset(Dataset):
 
       image_decoder_target = np.ndarray((1,1,1,),int)#Don't need so have it be size 1 to trigger the flag
 
+      raw_pose_str = raw_data['raw_answer']
+      res = re.findall(r'\[.*?\]', raw_pose_str)
+      res = ' '.join(res)
+      res = res.replace('[','').replace(']','')
+      res = [float(x) for x in res.split()]
+
       item = {
       'image_encoder_input': image_encoder_input,
       'text_encoder_input': text_encoder_input,
       'text_decoder_input': text_decoder_input,
       'text_decoder_target': text_decoder_target,
-      'image_decoder_target': image_decoder_target
+      'image_decoder_target': image_decoder_target,
+      'raw_poses': res
       }
 
       return item

@@ -11,3 +11,14 @@ python data_processing/sort_data.py [/path/to/data]
 ```bash
 python data_processing/cleanDataset.py --path=[/path/to/data] --new_path=[OPTIONAL /path/to/put/clean/data OR LEAVE OUT TO NOT CREATE A NEW DIRECTORY]
 ```
+
+install cuda (above 11.X above 11.1 NOT 12)
+install cudnn for cuda version
+
+conda install cuda -c nvidia
+pip install --upgrade pip
+pip install --upgrade "jax[cuda]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+
+in unifiedio repo:
+pip install -r requirements.txt
+pip install -e .
