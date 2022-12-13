@@ -43,3 +43,4 @@ https://wandb.ai/glemasurier/unified-io-inference?workspace=user-glemasurier
 https://github.com/GregoryLeMasurier/unified-io-inference/blob/main/LeMasurier-Final-Paper.pdf
 
 ## Presentation
+https://github.com/GregoryLeMasurier/unified-io-inference/blob/main/NLP-Final-Presentation.pdf
