@@ -40,5 +40,6 @@ https://wandb.ai/glemasurier/unified-io-inference?workspace=user-glemasurier
 ## Trained Models
 
 ## Report
+https://github.com/GregoryLeMasurier/unified-io-inference/blob/main/LeMasurier-Final-Paper.pdf
 
 ## Presentation
