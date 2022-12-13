@@ -146,8 +146,10 @@ def train_and_evaluate(dataloaders, state, rng, config, run_evaluation):
         if enable_wandb:
             wandb.log({
                 "Test Accuracy": test_batch_metrics['accuracy'],
+                "Test Position Accuracy": test_batch_metrics['position_accuracy'],
                 "Test Euclidean Dist 3D": test_batch_metrics['euclidean_distance_3d'],
-                "Test Euclidean Dist 2D": test_batch_metrics['euclidean_distance_2d']
+                "Test Euclidean Dist 2D": test_batch_metrics['euclidean_distance_2d'],
+                "Test Quantizer_Error": test_batch_metrics['quantizer_error']
             }, step=epochs)
 
     return state
@@ -255,30 +257,47 @@ def compute_test_metrics(*, logits, labels, raw_poses):
   loss = cross_entropy_loss(logits=logits, labels=labels)
   accuracy = jnp.mean(jnp.argmax(logits, -1) == labels)
 
+  poses = jnp.argmax(logits, -1)
+  positions = np.concatenate((poses[:, 4:7], poses[:, 17:20]), -1)
+  exp_positions = np.concatenate((labels[:, 4:7], labels[:, 17:20]), -1)
+  position_accuracy = jnp.mean(positions == exp_positions)
+
   dist_3d = 0
   dist_2d = 0
+  quantize_error = 0
+  for quantized_actual, actual in zip(labels, raw_poses):
+    dec_actual = tokenizer.decode(quantized_actual[:-1]) #doesn't work with jit, unsurprisingly
+    dec_vals = re.findall(r'\<.*?\>', dec_actual)
+    quantized_dec_vals = pq.decode_array(dec_vals)
+    quantize_error += abs(np.linalg.norm(np.array((quantized_dec_vals[0],quantized_dec_vals[1],quantized_dec_vals[2])) - np.array((actual[0], actual[1], actual[2]))))
+    quantize_error += abs(np.linalg.norm(np.array((quantized_dec_vals[7],quantized_dec_vals[8],quantized_dec_vals[9])) - np.array((actual[7], actual[8], actual[9]))))
   for pred, actual in zip(jnp.argmax(logits, -1), raw_poses):
     dec_pred = tokenizer.decode(pred[:-1]) #doesn't work with jit, unsurprisingly
     pred_vals = re.findall(r'\<.*?\>', dec_pred)
-    #pred_vals = [(tokenizer.vocab_size - 1) - token for token in pred if token >= (tokenizer.vocab_size - constants.VOCAB_EXTRA_IDS)]
     if len(pred_vals) != 14:
         dist_3d += 2 * abs(np.linalg.norm(np.array((MIN,MIN,MIN)) - np.array((MAX,MAX,MAX)))) #default to 2 * max distance (since we have 2 poses)
         dist_2d += 2 * abs(math.dist((MIN,MIN), (MAX,MAX))) #default to 2 * max distance (since we have 2 poses)
-
     else:
         pred_dec_vals = pq.decode_array(pred_vals)
         #ignore rotation for now. Hardcoded position indices
         dist_3d += abs(np.linalg.norm(np.array((pred_dec_vals[0],pred_dec_vals[1],pred_dec_vals[2])) - np.array((actual[0], actual[1], actual[2]))))
+        dist_3d += abs(np.linalg.norm(np.array((pred_dec_vals[7],pred_dec_vals[8],pred_dec_vals[9])) - np.array((actual[7], actual[8], actual[9]))))
+        dist_2d += abs(math.dist((pred_dec_vals[0],pred_dec_vals[1]), (actual[0], actual[1])))
         dist_2d += abs(math.dist((pred_dec_vals[7],pred_dec_vals[8]), (actual[7], actual[8])))
+
   num_instances = (2*len(raw_poses))
+
   avg_dist_3d = dist_3d / num_instances
   avg_dist_2d = dist_2d / num_instances
+  quantize_error = quantize_error / num_instances
 
   metrics = {
       'loss': loss,
       'accuracy': accuracy,
+      'position_accuracy': position_accuracy,
       'euclidean_distance_3d': avg_dist_3d,
-      'euclidean_distance_2d': avg_dist_2d
+      'euclidean_distance_2d': avg_dist_2d,
+      'quantizer_error': quantize_error
   }
   return metrics
 
