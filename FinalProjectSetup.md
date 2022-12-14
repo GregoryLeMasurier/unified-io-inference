@@ -38,6 +38,8 @@ BASE:  ```wget https://ai2-prior-uio.s3.us-west-2.amazonaws.com/public/model-wei
 https://wandb.ai/glemasurier/unified-io-inference?workspace=user-glemasurier
 
 ## Trained Models
+Small: https://huggingface.co/glemasurier/final-project-small/tree/main  
+Base: https://huggingface.co/glemasurier/final-project-base/tree/main
 
 ## Report
 https://github.com/GregoryLeMasurier/unified-io-inference/blob/main/LeMasurier-Final-Paper.pdf
