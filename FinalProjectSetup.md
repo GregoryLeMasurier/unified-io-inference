@@ -32,7 +32,8 @@ SMALL: ```wget https://ai2-prior-uio.s3.us-west-2.amazonaws.com/public/model-wei
 BASE:  ```wget https://ai2-prior-uio.s3.us-west-2.amazonaws.com/public/model-weights-bin/base_1000k.bin -O base.bin```
 
 ## Run Training Loop
-```python train.py --data_path=[/path/to/clean_data] --params_path=[/path/to/model] --model_size[small, base, large, xl] --batch_size=[OPTIONAL: batch_size] --learning_rate[OPTIONAL: learning rate] --epochs=[OPTIONAL: # epochs] --evaluate=[True,False] --checkpoint_path[OPTIONAL: /path/to/save] --enable_wandb=[OPTIONAL: True,False]```
+```python train.py --data_path=[/path/to/clean_data] --params_path=[/path/to/model] --model_size[small, base, large, xl] --batch_size=[OPTIONAL: batch_size] --learning_rate[OPTIONAL: learning rate] --epochs=[OPTIONAL: # epochs] --evaluate=[True,False] --checkpoint_path[OPTIONAL: /path/to/save] --enable_wandb=[OPTIONAL: True,False]```  
+TO RUN EVAL ONLY SET: --epochs=0
 
 ## WANDB Link
 https://wandb.ai/glemasurier/unified-io-inference?workspace=user-glemasurier
